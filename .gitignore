@@ -20,6 +20,9 @@ renv/staging/
 .DS_Store
 Thumbs.db
 
+# Personal planning notes (not published vignette content)
+NOTES.md
+
 # Outputs (regenerate from analysis)
 outputs/figures/*.png
 outputs/figures/*.pdf
