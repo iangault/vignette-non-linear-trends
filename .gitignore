@@ -1,0 +1,25 @@
+# R
+.Rhistory
+.RData
+.Rproj.user/
+
+# Rendered output (regenerate from source)
+*.html
+*.pdf
+*.docx
+
+# Data (raw data stays local — use data/synthetic for committed examples)
+data/raw/
+
+# Package/renv (library is OS-specific; lockfile and activate.R must be committed)
+renv/library/
+renv/local/
+renv/staging/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Outputs (regenerate from analysis)
+outputs/figures/*.png
+outputs/figures/*.pdf
