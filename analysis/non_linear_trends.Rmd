@@ -1,0 +1,101 @@
+---
+title: "Nonlinear Trend Analysis"
+subtitle: "Piecewise, Changepoint, and Smooth-Curve Methods for Non-Monotonic Water Quality Trends"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: flatly
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  message = FALSE,
+  warning = FALSE,
+  echo    = TRUE,
+  fig.width = 9,
+  fig.height = 5
+)
+# Set working directory to project root so all paths resolve from there.
+knitr::opts_knit$set(root.dir = normalizePath(".."))
+```
+
+```{r libraries}
+library(dplyr)
+library(ggplot2)
+library(knitr)
+```
+
+```{r source-functions}
+source("R/utils.R")
+source("R/piecewise_model.R")
+source("R/changepoint_model.R")
+source("R/smoothing_models.R")
+source("R/model_comparison.R")
+source("R/plot_nonlinear.R")
+```
+
+```{r generate-data, include=FALSE}
+# Generate synthetic data if not already present.
+if (!file.exists("data/synthetic/non_linear_wq.csv")) {
+  source("R/generate_synthetic_data.R")
+}
+non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_types = FALSE)
+```
+
+---
+
+## Background
+
+`vignette-temporal-trends` covers linear/monotonic trend detection (ANOVA slope, Mann-Kendall) and explicitly scopes out trends that aren't well described by a straight line or a monotonic rank test. This vignette picks up that gap.
+
+The question being asked throughout is about **inference on the observed record** — did this analyte change, and how — not forecasting. The methods below (LOESS and GAM especially) extrapolate poorly outside the range of the data, so projecting beyond the observed period is out of scope here, the same way nonlinear trends were out of scope for `vignette-temporal-trends`.
+
+Six case-study analytes, each chosen to exercise a different method:
+
+1. **Total Nitrogen** — flat, then a real break in *slope* partway through the record.
+2. **Specific Conductance** — a real break in *level* (a step shift) at an unknown point, same slope before and after.
+3. **Total Phosphorus** — a smooth rise-then-plateau (logistic saturation), no natural single breakpoint.
+4. **Dissolved Oxygen** — a seasonal cycle layered on a slow multi-year decline.
+5. **Total Chloride** — a genuine straight-line trend across the whole record (control case).
+6. **Total Zinc** — flat, no trend, pure noise (control case).
+
+```{r raw-overview, fig.height=8}
+ggplot(non_linear_wq, aes(date, result)) +
+  geom_point(alpha = 0.5, size = 1) +
+  facet_wrap(~analyte, scales = "free_y", ncol = 2) +
+  labs(x = NULL, y = "Result") +
+  nlt_theme
+```
+
+---
+
+## Piecewise / Segmented Linear Regression
+
+*Total Nitrogen* — a real break in slope. TBD.
+
+---
+
+## Changepoint Detection
+
+*Specific Conductance* — a real break in level, location unknown. TBD.
+
+---
+
+## LOESS Smoothing
+
+*Total Phosphorus* — rise-then-plateau. TBD.
+
+---
+
+## Generalized Additive Models (GAM)
+
+*Dissolved Oxygen* — seasonal cycle plus trend. TBD.
+
+---
+
+## Linear vs. Nonlinear Comparison
+
+*Total Chloride* (linear control) and *Total Zinc* (noise control). TBD.
