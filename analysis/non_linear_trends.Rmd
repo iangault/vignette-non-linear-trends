@@ -32,6 +32,7 @@ library(knitr)
 source("R/utils.R")
 source("R/piecewise_model.R")
 source("R/changepoint_model.R")
+source("R/knn_model.R")
 source("R/smoothing_models.R")
 source("R/model_comparison.R")
 source("R/plot_nonlinear.R")
@@ -51,13 +52,13 @@ non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_ty
 
 `vignette-temporal-trends` covers linear/monotonic trend detection (ANOVA slope, Mann-Kendall) and explicitly scopes out trends that aren't well described by a straight line or a monotonic rank test. This vignette picks up that gap.
 
-The question being asked throughout is about **inference on the observed record** — did this analyte change, and how — not forecasting. The methods below (LOESS and GAM especially) extrapolate poorly outside the range of the data, so projecting beyond the observed period is out of scope here, the same way nonlinear trends were out of scope for `vignette-temporal-trends`.
+The question being asked throughout is about **inference on the observed record** — did this analyte change, and how — not forecasting. The methods below (k-NN, LOESS, and GAM especially) extrapolate poorly outside the range of the data, so projecting beyond the observed period is out of scope here, the same way nonlinear trends were out of scope for `vignette-temporal-trends`.
 
-Six case-study analytes, each chosen to exercise a different method:
+Six case-study analytes, each chosen to exercise a different method (Total Phosphorus drives two — k-NN and LOESS, for a direct side-by-side on the same data):
 
 1. **Total Nitrogen** — flat, then a real break in *slope* partway through the record.
 2. **Specific Conductance** — a real break in *level* (a step shift) at an unknown point, same slope before and after.
-3. **Total Phosphorus** — a smooth rise-then-plateau (logistic saturation), no natural single breakpoint.
+3. **Total Phosphorus** — a smooth rise-then-plateau (logistic saturation), no natural single breakpoint (k-NN, LOESS).
 4. **Dissolved Oxygen** — a seasonal cycle layered on a slow multi-year decline.
 5. **Total Chloride** — a genuine straight-line trend across the whole record (control case).
 6. **Total Zinc** — flat, no trend, pure noise (control case).
@@ -81,6 +82,12 @@ ggplot(non_linear_wq, aes(date, result)) +
 ## Changepoint Detection
 
 *Specific Conductance* — a real break in level, location unknown. TBD.
+
+---
+
+## k-Nearest Neighbors Regression
+
+*Total Phosphorus* — a baseline local-average predictor, compared against LOESS below on the same data. TBD.
 
 ---
 
