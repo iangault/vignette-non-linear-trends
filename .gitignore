@@ -28,3 +28,7 @@ PROCESS.md
 # Outputs (regenerate from analysis)
 outputs/figures/*.png
 outputs/figures/*.pdf
+
+# Quarto build artifacts (regenerate from source)
+/_site/
+/.quarto/

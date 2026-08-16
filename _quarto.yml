@@ -1,6 +1,14 @@
 project:
   type: website
   execute-dir: project
+  render:
+    - index.qmd
+    - chapters/piecewise-regression.qmd
+    - chapters/changepoint-detection.qmd
+    - chapters/knn-regression.qmd
+    - chapters/loess-smoothing.qmd
+    - chapters/gam.qmd
+    - chapters/linear-vs-nonlinear-comparison.qmd
 
 website:
   title: "Modelling Beyond a Straight Line"
