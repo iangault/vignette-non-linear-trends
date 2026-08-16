@@ -1,5 +1,131 @@
 ---
 title: "Piecewise / Segmented Linear Regression"
+subtitle: "Total Nitrogen — a genuine break in slope"
 ---
 
-Content in progress.
+```{r}
+#| label: setup
+#| include: false
+library(dplyr)
+library(ggplot2)
+library(segmented)
+library(lmtest)
+source("R/utils.R")
+non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_types = FALSE)
+tn <- non_linear_wq |> filter(analyte == "Total Nitrogen")
+```
+
+## From a single slope to a bending line
+
+A straight-line regression assumes one slope holds across the whole record. Three progressively less restrictive models relax that assumption:
+
+1. **Piecewise constant.** The regressor's range is split into intervals at one or more knots, and each interval gets its own flat mean — no slope at all within a segment, and a jump in the fitted value at every knot.
+2. **Non-continuous piecewise linear.** Each interval gets its own intercept *and* its own slope, by interacting the regressor with the interval indicator. Segments still don't connect at the knots — there's a visible jump in the fitted line even though nothing in the data actually jumped.
+3. **Continuous piecewise linear.** Segments are forced to join at each knot by using a hinge function, $(x - c)_+ = \max(0, x - c)$, in place of separate per-interval terms:
+   $$y_i = \beta_0 + \beta_1 x_i + \beta_2 (x_i - c)_+ + \varepsilon_i$$
+   One global intercept and slope, plus one hinge term per knot that adjusts the slope going forward without introducing a jump.
+
+Total Nitrogen — flat, then a genuine slope break, with no discontinuity in level — belongs at the third stage: two slopes joined at a single knot.
+
+A hinge function is feature engineering on the regressor, not a link function. It's a new column handed to an ordinary least-squares fit, estimated the usual way — "linear regression" means linear *in the coefficients*, not linear in $x$, so a model with a hinge term is still fit by `lm()`. A link function is a different mechanism: a transform on the response's mean, connecting it to the linear predictor, relevant to generalized linear models rather than to feature engineering on $x$.
+
+### Why `log(result)`
+
+Concentration data is strictly positive and typically right-skewed — the processes that move a concentration, such as dilution, loading, and removal, tend to act multiplicatively, a fixed-percentage effect on the current level rather than a fixed absolute amount, which generates a log-normal-shaped distribution close to by construction. Fitting on `log(result)` rather than `result` directly addresses two ordinary-least-squares assumptions the raw scale usually violates: **homoscedasticity** (raw-scale concentration variance typically grows with the mean) and **normality of residuals** (right skew on the raw scale becomes closer to symmetric on the log scale). The fit that follows models $E[\log(Y) \mid X]$ — $Y$ is treated as log-normal, not Gaussian on its original scale.
+
+One consequence worth flagging up front: a hinge-term coefficient estimated on `log(result)` is a rate in log-units per year, not raw units per year. For small rates, $\log(1+r) \approx r$, so a coefficient like 0.14 is roughly a 14% per year change — but the number worth reporting is the back-transformed one, $(\exp(\hat\beta) - 1) \times 100\%$, not the raw log-scale coefficient.
+
+## The shape in the record
+
+```{r}
+#| label: tn-raw-series
+ggplot(tn, aes(year_frac, result)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(se = FALSE) +
+  labs(title = "Total Nitrogen — raw scale") +
+  nlt_theme
+
+ggplot(tn, aes(year_frac, log(result))) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(se = FALSE) +
+  labs(title = "Total Nitrogen — log scale") +
+  nlt_theme
+```
+
+The log-scale series is the closer match to two straight segments joined at a bend, consistent with the log-transform reasoning above.
+
+## Estimating the breakpoint
+
+The breakpoint was not assumed: it was estimated from the data using `segmented::segmented()`, seeded from an initial visual read of the series. That function starts from a baseline model with a single global slope and no breakpoint, then runs an iterative local search — Muggeo's algorithm: re-estimate the breakpoint given the current slopes, re-estimate the slopes given the new breakpoint, repeat to convergence — around the starting value. It is a local search, not an exhaustive one, so the starting value needs to be in the right neighborhood rather than exact; here, roughly year 6 into the twelve-year record, read off the plot above.
+
+```{r}
+#| label: tn-segmented-fit
+lm_tn <- lm(log(result) ~ year_frac, data = tn)
+seg_tn <- segmented(lm_tn, seg.Z = ~year_frac, psi = 6)
+```
+
+## Results
+
+```{r}
+#| label: tn-summary
+summary(seg_tn)
+```
+
+The coefficient table above reports `Pr(>|t|)` as `NA` for the change-in-slope term, `U1.year_frac`. That's expected rather than missing: the standard $t$-test reference distribution assumes a fixed design matrix, and here the breakpoint the design depends on was itself estimated from the same data. `confint()` and `slope()` below are `segmented`'s treatment of this — inference on the breakpoint and on each segment's slope that accounts for the estimated breakpoint.
+
+```{r}
+#| label: tn-confint
+confint(seg_tn)
+```
+
+```{r}
+#| label: tn-slope
+slope(seg_tn)
+```
+
+The breakpoint is estimated at `year_frac` ≈ 5.9 (95% CI 5.18–6.61) — roughly 5.9 years into the twelve-year record. Before the break, the slope is not distinguishable from zero: the series is genuinely flat for the first six years, not merely slow-rising. After the break, the slope is clearly positive (95% CI 0.120–0.160, nowhere near zero); back-transformed, $(\exp(0.140) - 1) \times 100\% \approx 15\%$ per year.
+
+`slope()`'s output reports a $t$-value but no p-value, for the same reason as the `NA` above — the reference distribution for that statistic isn't exact once the breakpoint is estimated rather than fixed. The confidence interval carries the same caveat but is what the package leads with, rather than a p-value that would look more precise than the estimation actually supports. It doesn't change the reading: the interval excludes zero for the post-break slope and includes it for the pre-break slope, the same conclusion a p-value would give.
+
+```{r}
+#| label: tn-fitted-plot
+tn_pred <- tn |> mutate(fitted = predict(seg_tn))
+
+slope2 <- slope(seg_tn)$year_frac["slope2", ]
+slope2_label <- sprintf(
+  "slope 2 = %.3f (95%% CI %.3f-%.3f)",
+  slope2["Est."], slope2["CI(95%).l"], slope2["CI(95%).u"]
+)
+
+ggplot(tn, aes(year_frac, log(result))) +
+  geom_point(alpha = 0.5) +
+  geom_line(data = tn_pred, aes(y = fitted), color = "steelblue", linewidth = 1) +
+  geom_vline(xintercept = seg_tn$psi[, "Est."], linetype = "dashed") +
+  annotate(
+    "label",
+    x = seg_tn$psi[, "Est."], y = max(log(tn$result)),
+    label = slope2_label, hjust = 0, vjust = 1, size = 3.2
+  ) +
+  labs(title = "Total Nitrogen — continuous piecewise fit (log scale)") +
+  nlt_theme
+```
+
+## Model diagnostics
+
+The segmented fit carries the same ordinary-least-squares assumptions as the underlying linear model — homoscedasticity and normally distributed residuals.
+
+```{r}
+#| label: tn-bptest
+bptest(seg_tn)
+```
+
+```{r}
+#| label: tn-shapiro
+shapiro.test(resid(seg_tn))
+```
+
+Both tests fail to reject their null: the Breusch-Pagan test ($p = 0.328$) finds no evidence of heteroscedasticity, and the Shapiro-Wilk test ($p = 0.575$) finds no evidence of non-normal residuals. This is also a retroactive check on the log-transform: a failure in either test would have suggested `log(result)` wasn't the right scale to model on.
+
+## Interpretation
+
+Total Nitrogen was flat for roughly the first six years of the record and then began rising at approximately 15% per year, with the shift estimated — not assumed — at `year_frac` ≈ 5.9, about six years into the twelve-year record, with a residual uncertainty band of roughly ±0.7 years around that estimate. The pre-break segment shows no detectable trend; the post-break segment's rate is estimated precisely enough (95% CI 0.120–0.160 log-units per year) to report with confidence. The model's assumptions hold up under diagnostic testing, supporting the fit as a defensible basis for the interpretation above.
