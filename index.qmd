@@ -64,7 +64,7 @@ The methods on this site sit on a spectrum from parametric to nonparametric:
 
 ## Why this matters for a client or regulator
 
-Getting the functional form right isn't academic — it changes what gets reported and what action follows. Forcing a straight line onto a plateau makes an analyte look like it's still climbing when it's actually leveled off. Missing a real step change — an operational event, a permit change — and reporting it as a gradual trend obscures the actual cause and the actual fix. Fitting a flexible model to pure noise manufactures a trend that isn't there and triggers unnecessary escalation. A defensible analysis uses the model whose complexity is actually supported by the data — no more, no less — and can explain in plain terms why that model was chosen over the alternatives.
+Model choice isn't just an academic distinction — it changes what gets reported and what action follows. A plateau misread as ongoing growth can trigger a treatment upgrade or permit renegotiation nobody actually needed. A step change misread as a gradual trend sends the investigation toward the wrong cause — a slow watershed process instead of the operational event or permit change that actually happened — and delays the fix. And a flexible model fit to pure noise manufactures a trend that isn't there, triggering escalation over nothing. The reverse failure carries its own cost: real change dismissed as noise because the model wasn't flexible enough to see it. Guarding against both means using the model whose complexity is actually supported by the data — no more, no less — and being able to explain that choice in plain terms to someone who isn't a statistician, since a result nobody can sanity-check doesn't get trusted enough to act on.
 
 ## The case studies
 
@@ -74,7 +74,7 @@ Six analytes, each chosen to demonstrate a specific shape or to act as a control
 #| label: raw-overview
 #| fig-height: 8
 #| echo: false
-ggplot(non_linear_wq, aes(date, result)) +
+ggplot(non_linear_wq |> order_analytes(), aes(date, result)) +
   geom_point(alpha = 0.5, size = 1) +
   facet_wrap(~analyte, scales = "free_y", ncol = 2) +
   labs(x = NULL, y = "Result") +

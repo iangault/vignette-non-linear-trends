@@ -31,7 +31,7 @@ A hinge function is feature engineering on the regressor, not a link function. I
 
 ### Why `log(result)`
 
-Concentration data is strictly positive and typically right-skewed — the processes that move a concentration, such as dilution, loading, and removal, tend to act multiplicatively, a fixed-percentage effect on the current level rather than a fixed absolute amount, which generates a log-normal-shaped distribution close to by construction. Fitting on `log(result)` rather than `result` directly addresses two ordinary-least-squares assumptions the raw scale usually violates: **homoscedasticity** (raw-scale concentration variance typically grows with the mean) and **normality of residuals** (right skew on the raw scale becomes closer to symmetric on the log scale). The fit that follows models $E[\log(Y) \mid X]$ — $Y$ is treated as log-normal, not Gaussian on its original scale.
+Concentration data is strictly positive and typically right-skewed — the processes that move a concentration, such as dilution, loading, and removal, tend to act multiplicatively, a fixed-percentage effect on the current level rather than a fixed absolute amount, which generates a log-normal-shaped distribution almost by construction. Fitting on `log(result)` rather than `result` directly addresses two ordinary-least-squares assumptions the raw scale usually violates: **homoscedasticity** (raw-scale concentration variance typically grows with the mean) and **normality of residuals** (right skew on the raw scale becomes closer to symmetric on the log scale). The fit that follows models $E[\log(Y) \mid X]$ — $Y$ is treated as log-normal, not Gaussian on its original scale.
 
 One consequence worth flagging up front: a hinge-term coefficient estimated on `log(result)` is a rate in log-units per year, not raw units per year. For small rates, $\log(1+r) \approx r$, so a coefficient like 0.14 is roughly a 14% per year change — but the number worth reporting is the back-transformed one, $(\exp(\hat\beta) - 1) \times 100\%$, not the raw log-scale coefficient.
 
@@ -39,6 +39,7 @@ One consequence worth flagging up front: a hinge-term coefficient estimated on `
 
 ```{r}
 #| label: tn-raw-series
+#| message: false
 ggplot(tn, aes(year_frac, result)) +
   geom_point(alpha = 0.5) +
   geom_smooth(se = FALSE) +
@@ -83,7 +84,7 @@ confint(seg_tn)
 slope(seg_tn)
 ```
 
-The breakpoint is estimated at `year_frac` ≈ 5.9 (95% CI 5.18–6.61) — roughly 5.9 years into the twelve-year record. Before the break, the slope is not distinguishable from zero: the series is genuinely flat for the first six years, not merely slow-rising. After the break, the slope is clearly positive (95% CI 0.120–0.160, nowhere near zero); back-transformed, $(\exp(0.140) - 1) \times 100\% \approx 15\%$ per year.
+The breakpoint is estimated at `year_frac` ≈ 5.9 (95% CI 5.18–6.61) — roughly 5.9 years into the twelve-year record. Before the break, there is no detectable trend over the first six years. After the break, the slope is clearly positive (95% CI 0.120–0.160, nowhere near zero); back-transformed, $(\exp(0.140) - 1) \times 100\% \approx 15\%$ per year.
 
 `slope()`'s output reports a $t$-value but no p-value, for the same reason as the `NA` above — the reference distribution for that statistic isn't exact once the breakpoint is estimated rather than fixed. The confidence interval carries the same caveat but is what the package leads with, rather than a p-value that would look more precise than the estimation actually supports. It doesn't change the reading: the interval excludes zero for the post-break slope and includes it for the pre-break slope, the same conclusion a p-value would give.
 
