@@ -1,5 +1,93 @@
 ---
 title: "Modelling Beyond a Straight Line"
+subtitle: "Detecting nonlinear and non-monotonic trends in water-quality monitoring data"
 ---
 
-Content in progress.
+```{r}
+#| label: setup
+#| include: false
+library(dplyr)
+library(ggplot2)
+source("R/utils.R")
+if (!file.exists("data/synthetic/non_linear_wq.csv")) {
+  source("R/generate_synthetic_data.R")
+}
+non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_types = FALSE)
+```
+
+## Why nonlinear methods matter here
+
+Environmental data rarely behaves as neatly as the models used to describe it. A straight-line trend is a fine description when a concentration is genuinely rising or falling at a constant rate — but many real records don't look like that: a flat baseline that suddenly starts climbing, a level that jumps once and holds, a rise that levels off into a plateau, a seasonal cycle riding on top of a slower trend. Forcing a straight line onto any of these shapes produces a technically-fitted but practically misleading answer: it can make a plateaued analyte look like it's still climbing, or smear a one-time step change into what reads as a gradual trend.
+
+This site works through five methods for picking up on those shapes, in order of increasing flexibility — piecewise/segmented regression, changepoint detection, k-nearest-neighbors regression, LOESS smoothing, and generalized additive models — plus a closing comparison of when the added flexibility is actually worth it against a plain linear fit.
+
+## What ordinary least squares is actually doing
+
+Ordinary least squares models the conditional mean of the response given the regressors, not the response itself. For a single predictor:
+
+$$y_i = \beta_0 + \beta_1 x_i + \varepsilon_i, \qquad \varepsilon_i \sim N(0, \sigma^2) \text{ i.i.d.}$$
+
+Equivalently, $E[Y \mid X = x] = \beta_0 + \beta_1 x$: on average, at this value of $x$, expect this value of $y$ — a claim about the average trajectory, not any individual point.
+
+The core assumptions, roughly in order of how much trouble breaking them causes:
+
+- **Linearity** — the true conditional mean really is a straight line in the predictors. This is the assumption every method on this site is about testing or relaxing.
+- **Independence** — residuals aren't correlated with each other.
+- **Homoscedasticity** — constant error variance across the range of $x$.
+- **Normality of errors** — needed for exact p-values and confidence intervals at small sample sizes, not for the point estimates themselves.
+
+## Inference vs. prediction
+
+Two different jobs a model can do, and every case study on this site is doing the first one:
+
+- **Inference** — the coefficients themselves are the answer: is there a real trend, how big is it, is it statistically distinguishable from noise. This requires the model form to be roughly right, since a misspecified model gives confident-looking, wrong numbers.
+- **Prediction** — only $\hat y$ for new inputs matters; the model can be an uninterpretable black box as long as it's accurate out-of-sample.
+
+"Is this analyte trending, and how" is an inference question. "What will next year's reading be" would be prediction — out of scope here, because k-nearest-neighbors, LOESS, and GAM all extrapolate poorly past the range of data they were fit on (see Scope, below).
+
+Not every method here can do inference, and that's a structural property of the fitting procedure, not a per-project choice:
+
+- **Inference-capable, and therefore prediction-capable too:** linear regression, piecewise/segmented regression, changepoint detection, GAM. Each produces an interpretable, testable parameter — a slope, a breakpoint location, a shift, a significance test on a smooth term — and the same fit gives a $\hat y$ for free.
+- **Prediction-only, structurally:** k-nearest-neighbors and LOESS. Neither ever produces a coefficient or a p-value — there is no mechanism for one to come out of. What they supply is $\hat y$ within the observed range of $x$; LOESS is a smoother, less boundary-biased version of the same job k-nearest-neighbors does.
+
+## A model is an abstraction, not a recovery
+
+Every method here — linear, piecewise, LOESS, GAM — is a different simplification of an unknown true process. The question is never which model is correct, it's which simplification is adequate for the decision at hand and cheap enough to explain and defend. A straight line is a fine abstraction when the data really is monotonic; it becomes actively misleading once the shape genuinely bends.
+
+Model choice is a tradeoff along three axes: interpretability (can the fitted model be explained to a non-statistician), fit quality (does it capture the actual shape), and data efficiency (how much data it needs to estimate reliably).
+
+The methods on this site sit on a spectrum from parametric to nonparametric:
+
+- **Parametric** (linear, piecewise) — a small, fixed number of parameters. Highly interpretable and cheap to estimate, but correct only if the true shape matches the assumed form.
+- **Nonparametric** (k-nearest-neighbors, LOESS) — no fixed functional form; the fit adapts to local structure. Robust to getting the shape wrong a priori, but needs more data to estimate as reliably as a correctly-specified parametric model, and doesn't reduce to a handful of reportable numbers.
+- **Semi-parametric** (GAM) — smooth basis functions like LOESS, but with a fitted penalty controlling how much wiggle is allowed, plus proper inferential machinery LOESS doesn't provide.
+
+## Why this matters for a client or regulator
+
+Getting the functional form right isn't academic — it changes what gets reported and what action follows. Forcing a straight line onto a plateau makes an analyte look like it's still climbing when it's actually leveled off. Missing a real step change — an operational event, a permit change — and reporting it as a gradual trend obscures the actual cause and the actual fix. Fitting a flexible model to pure noise manufactures a trend that isn't there and triggers unnecessary escalation. A defensible analysis uses the model whose complexity is actually supported by the data — no more, no less — and can explain in plain terms why that model was chosen over the alternatives.
+
+## The case studies
+
+Six analytes, each chosen to demonstrate a specific shape or to act as a control — monthly sampling, single composite site, 2013–2024.
+
+```{r}
+#| label: raw-overview
+#| fig-height: 8
+#| echo: false
+ggplot(non_linear_wq, aes(date, result)) +
+  geom_point(alpha = 0.5, size = 1) +
+  facet_wrap(~analyte, scales = "free_y", ncol = 2) +
+  labs(x = NULL, y = "Result") +
+  nlt_theme
+```
+
+- **Total Nitrogen** — flat, then a genuine slope break. Piecewise/segmented regression: two slopes, one knot, no discontinuity.
+- **Specific Conductance** — a level jump at an unknown location. Changepoint detection: the same "something shifted" question as Total Nitrogen, but without being told where.
+- **Total Phosphorus** — a rise that levels into a plateau. Used twice — k-nearest-neighbors and LOESS, on the same data, for a direct side-by-side.
+- **Dissolved Oxygen** — a seasonal cycle riding on a longer-term trend. GAM: a shape no single knot or local average handles well.
+- **Total Chloride** — a genuine, unremarkable straight-line trend. A control: the case where the simple linear model is already the right answer.
+- **Total Zinc** — pure noise, no real trend. The other control: the guard against a flexible model manufacturing a trend that isn't there.
+
+## Scope
+
+This is inference on the observed record — is there a real trend, where and how did it change — not forecasting. k-nearest-neighbors, LOESS, and GAM all extrapolate poorly past the range of the fitted data, so projecting beyond the observed period is out of scope throughout.
