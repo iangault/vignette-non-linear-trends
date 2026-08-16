@@ -19,16 +19,16 @@ Built up as a progression from the linear model `vignette-temporal-trends` alrea
 
 Six analytes, each chosen to exercise a different method (Total Phosphorus drives two — k-NN and LOESS, for a direct side-by-side on the same data):
 
-1. **Total Nitrogen** — flat, then a real break in slope partway through the record
-2. **Specific Conductance** — a real break in level (step shift) at an unknown point, same slope before and after
-3. **Total Phosphorus** — a smooth rise-then-plateau (logistic saturation), no natural single breakpoint (k-NN, LOESS)
-4. **Dissolved Oxygen** — a seasonal cycle layered on a slow multi-year decline
-5. **Total Chloride** — a genuine straight-line trend across the whole record (control case)
-6. **Total Zinc** — flat, no trend, pure noise (control case — guards against false positives)
+1.  **Total Nitrogen** — flat, then a real break in slope partway through the record
+2.  **Specific Conductance** — a real break in level (step shift) at an unknown point, same slope before and after
+3.  **Total Phosphorus** — a smooth rise-then-plateau (logistic saturation), no natural single breakpoint (k-NN, LOESS)
+4.  **Dissolved Oxygen** — a seasonal cycle layered on a slow multi-year decline
+5.  **Total Chloride** — a genuine straight-line trend across the whole record (control case)
+6.  **Total Zinc** — flat, no trend, pure noise (control case — guards against false positives)
 
 ## Structure
 
-```
+```         
 analysis/
   non_linear_trends.Rmd        # vignette — the reader-facing document
 R/
@@ -50,7 +50,7 @@ outputs/
 
 Open `vignette-non-linear-trends.Rproj` in RStudio, then knit `analysis/non_linear_trends.Rmd`. The setup chunk sets the working directory to the project root so all relative paths resolve correctly.
 
-The rendered vignette is also published automatically on push to `main` via `.github/workflows/render-deploy.yml`, and viewable at https://iangault.github.io/vignette-non-linear-trends/.
+The rendered vignette is also published automatically on push to `main` via `.github/workflows/render-deploy.yml`, and viewable at <https://iangault.github.io/vignette-non-linear-trends/>.
 
 The synthetic data file (`data/synthetic/non_linear_wq.csv`) is generated automatically on first run if not already present.
 
