@@ -1,0 +1,8 @@
+---
+title: "LOESS Smoothing"
+subtitle: "Total Phosphorus — the same rise-then-plateau, a smoother local fit"
+---
+
+LOESS fits a separate weighted local regression at every point, producing a smoother curve than k-nearest-neighbors' local average, on the same Total Phosphorus data for a direct comparison. Like k-NN, it doesn't produce coefficients or a significance test — its role here is a smooth-curve baseline ahead of the GAM section.
+
+*Analysis not yet written.*

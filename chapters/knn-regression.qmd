@@ -1,0 +1,8 @@
+---
+title: "k-Nearest Neighbors Regression"
+subtitle: "Total Phosphorus — a rise that levels into a plateau"
+---
+
+Total Phosphorus rises smoothly and then plateaus, a shape no single breakpoint or straight segment describes well. k-nearest-neighbors regression predicts each point as the average of its *k* nearest neighbors in the data — no fitted curve, no coefficients, a purely local-average baseline compared against LOESS on the same data.
+
+*Analysis not yet written.*

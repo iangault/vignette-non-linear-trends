@@ -1,0 +1,8 @@
+---
+title: "Changepoint Detection"
+subtitle: "Specific Conductance — a level shift at an unknown point"
+---
+
+Specific Conductance holds at one level, then shifts to a new level partway through the record, with the same — flat — slope on both sides: a level jump rather than a slope break. Unlike the piecewise case, the shift's location isn't known in advance here, so a changepoint-detection algorithm has to find it rather than a knot being read off a plot.
+
+*Analysis not yet written.*

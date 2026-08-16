@@ -1,0 +1,27 @@
+project:
+  type: website
+  execute-dir: project
+
+website:
+  title: "Modelling Beyond a Straight Line"
+  page-navigation: true
+  sidebar:
+    style: docked
+    search: true
+    contents:
+      - index.qmd
+      - section: "Methods"
+        contents:
+          - chapters/piecewise-regression.qmd
+          - chapters/changepoint-detection.qmd
+          - chapters/knn-regression.qmd
+          - chapters/loess-smoothing.qmd
+          - chapters/gam.qmd
+          - chapters/linear-vs-nonlinear-comparison.qmd
+
+format:
+  html:
+    theme: flatly
+    toc: true
+    toc-location: right
+    code-fold: false

@@ -1,0 +1,8 @@
+---
+title: "Generalized Additive Models"
+subtitle: "Dissolved Oxygen — a seasonal cycle riding on a longer-term trend"
+---
+
+Dissolved Oxygen combines a within-year seasonal cycle with a slower multi-year trend, a shape no single knot or local average handles well. A generalized additive model fits this with a smooth basis function via `mgcv`, restoring the confidence bands and significance testing that k-nearest-neighbors and LOESS give up.
+
+*Analysis not yet written.*

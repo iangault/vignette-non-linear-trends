@@ -1,0 +1,8 @@
+---
+title: "Linear vs. Nonlinear Comparison"
+subtitle: "Total Chloride and Total Zinc — control cases"
+---
+
+Total Chloride follows a genuine, unremarkable straight-line trend; Total Zinc is pure noise with no real trend. Together they check two opposite failure modes: forcing unnecessary flexibility onto a series already well described by a straight line, and letting a flexible model manufacture a trend out of noise. This section compares linear and nonlinear fits on both analytes using AIC and deviance.
+
+*Analysis not yet written.*
