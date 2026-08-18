@@ -1,0 +1,143 @@
+---
+title: "Generalized Additive Mixed Models"
+subtitle: "Dissolved Oxygen — checking whether the GAM's significance test can be trusted"
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(dplyr)
+library(ggplot2)
+library(mgcv)
+library(nlme)
+library(lmtest)
+source("R/utils.R")
+non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_types = FALSE)
+do_wq <- non_linear_wq |> filter(analyte == "Dissolved Oxygen")
+```
+
+## What changes between a GAM and a GAMM
+
+A GAM's significance test on a smooth term — the F-test behind an edf and a p-value — is built on the same assumption ordinary least squares makes: the residuals are independent draws. Nothing about fitting `s(year_frac)` and `s(month)` checks that assumption, and monthly water-quality data routinely violates it — this month's reading tends to sit closer to last month's than an independent draw would, for reasons the model's mean structure hasn't captured (slow-moving hydrology, persistence in whatever's driving oxygen demand). If that correlation is there and unmodeled, the standard errors on a smooth term come out too small, edf can come out inflated, and "the trend is significant" can mean "the trend, plus some of the correlated noise the model mistook for it."
+
+A generalized additive **mixed** model keeps the exact same additive-smooth structure — the same `s(year_frac) + s(month)`, the same basis functions, the same idea of a fitted penalty deciding how much wiggle survives — and adds one thing: an explicit model for how the *residuals* are correlated, rather than assuming they aren't. `mgcv::gamm()` fits this by handing the smooth-term machinery to `nlme::lme()` underneath, which accepts a `correlation` argument — here, `corAR1()`, meaning each residual is modeled as depending on the one before it through a single correlation parameter $\phi$. Nothing about the mean structure changes; what changes is that the smooth terms' significance tests now account for observations not being independent, which is the actual point of this chapter.
+
+## The shape in the record
+
+```{r}
+#| label: do-raw-series
+#| message: false
+ggplot(do_wq, aes(year_frac, result)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(se = FALSE) +
+  labs(title = "Dissolved Oxygen — raw scale", y = "DO (mg/L)") +
+  nlt_theme
+```
+
+The same shape as before: an annual saw-tooth with a slight downward drift, hard to judge by eye against the size of the seasonal swing.
+
+### Does `log(result)` still make sense here
+
+Dissolved Oxygen isn't a concentration governed by dilution or loading the way Total Nitrogen or Specific Conductance are — it's set by gas solubility, reaeration, and biological demand — so the usual multiplicative argument for logging concentration data doesn't obviously carry over. Checked empirically instead: fitting the same additive-smooth structure on both scales and comparing residual homoscedasticity, the raw-scale fit fails the Breusch-Pagan test ($p = 0.0024$) and the log-scale fit doesn't ($p = 0.133$). `log(result)` is used from here on, on the strength of that check rather than the weaker a priori argument.
+
+## Fitting trend and season, assuming independence first
+
+```{r}
+#| label: do-gam-fit
+fit_gam <- gam(log(result) ~ s(year_frac, bs = "tp", k = 10) + s(month, bs = "cc", k = 12),
+               data = do_wq, knots = list(month = c(0.5, 12.5)), method = "REML")
+summary(fit_gam)
+```
+
+Read at face value, `s(year_frac)` looks like real nonlinear structure — edf 3.85, not a straight line — on top of a strongly significant seasonal term. Before trusting that, it's worth checking the assumption the F-test above depends on.
+
+## Checking the independence assumption
+
+```{r}
+#| label: do-acf
+acf(resid(fit_gam), main = "Residual autocorrelation, naive GAM")
+```
+
+Lag-1 autocorrelation in the residuals is a little over 0.5 — the residual left over after month and year_frac's smooths are accounted for is still substantially predictable from the previous month's residual, which an independent-errors model has no way to represent. That's the assumption `s(year_frac)`'s edf-of-3.85 and its F-test were resting on, and it doesn't hold here. The concern isn't hypothetical: a smoothing penalty free to explain slow-moving, positively-autocorrelated noise as if it were curvature will do exactly that, because from the fitting procedure's point of view, a real multi-year wiggle and a run of correlated residuals both look like "structure the flat line doesn't capture."
+
+## Refitting with an explicit correlation structure
+
+```{r}
+#| label: do-gamm-fit
+fit_gamm <- gamm(log(result) ~ s(year_frac, bs = "tp", k = 10) + s(month, bs = "cc", k = 12),
+                  data = do_wq, knots = list(month = c(0.5, 12.5)),
+                  correlation = corAR1(form = ~1))
+summary(fit_gamm$gam)
+```
+
+```{r}
+#| label: do-gamm-phi
+phi <- coef(fit_gamm$lme$modelStruct$corStruct, unconstrained = FALSE)
+phi
+
+fit_gamm0 <- gamm(log(result) ~ s(year_frac, bs = "tp", k = 10) + s(month, bs = "cc", k = 12),
+                   data = do_wq, knots = list(month = c(0.5, 12.5)))
+AIC(fit_gamm0$lme, fit_gamm$lme)
+```
+
+The estimated correlation is $\hat\phi \approx$ `r round(phi, 2)`, and the AR(1) model's AIC is decisively lower than the no-correlation version's — the correlation structure is earning its keep, not just adding a parameter for its own sake.
+
+Once it's in the model, `s(year_frac)`'s edf drops back to 1.00: a straight line. The wiggle the naive fit found on the trend term evaporates once the residual correlation is given somewhere else to go. The smooth term is still significant ($p = 8.1\times10^{-6}$) — there's a real long-term decline here — but it's a simple, constant-rate decline, not the more complex-looking trajectory the naive GAM implied.
+
+```{r}
+#| label: do-gamm-rate
+year_grid <- data.frame(year_frac = range(do_wq$year_frac), month = c(1, 1))
+pred <- predict(fit_gamm$gam, newdata = year_grid, type = "terms", terms = "s(year_frac)")
+slope_per_year <- diff(pred[, 1]) / diff(year_grid$year_frac)
+slope_per_year
+(exp(slope_per_year) - 1) * 100
+```
+
+The corrected rate is about `r sprintf("%.2f%%", (exp(slope_per_year) - 1) * 100)` per year.
+
+## The trend, with seasonality removed
+
+A single slope-per-year number is a summary; seeing the trend itself is a better check on it. `predict(..., type = "terms")` isolates `s(year_frac)`'s contribution on its own, separate from `s(month)`, which is exactly the "trend component" a classical decomposition (e.g. STL) would plot — recovered here as a term of the fitted GAMM rather than by a separate decomposition step.
+
+```{r}
+#| label: do-gamm-trend-plot
+trend_grid <- data.frame(
+  year_frac = seq(min(do_wq$year_frac), max(do_wq$year_frac), length.out = 200),
+  month = 6
+)
+trend_term <- predict(fit_gamm$gam, newdata = trend_grid, type = "terms",
+                       terms = "s(year_frac)", se.fit = TRUE)
+intercept <- coef(fit_gamm$gam)[["(Intercept)"]]
+trend_grid <- trend_grid |>
+  mutate(
+    fit   = intercept + trend_term$fit[, "s(year_frac)"],
+    lower = fit - 1.96 * trend_term$se.fit[, "s(year_frac)"],
+    upper = fit + 1.96 * trend_term$se.fit[, "s(year_frac)"]
+  )
+
+ggplot(trend_grid, aes(year_frac, exp(fit))) +
+  geom_ribbon(aes(ymin = exp(lower), ymax = exp(upper)), alpha = 0.2) +
+  geom_line(linewidth = 1) +
+  labs(title = "Dissolved Oxygen — trend component, seasonality removed",
+       subtitle = "s(year_frac) term from the AR(1)-corrected GAMM, 95% CI",
+       y = "DO (mg/L)", x = "Year") +
+  nlt_theme
+```
+
+The band widens gradually toward both ends of the record, as fitted-curve uncertainty usually does away from the bulk of the data, but never crosses back to flat or rising — consistent with the significant, monotonic decline reported above, and a direct visual check on the `edf = 1.00` finding: the line drawn here really is straight, not a curve that happens to average out to a negative slope.
+
+## Diagnostics
+
+```{r}
+#| label: do-gamm-diagnostics
+resid_norm <- as.numeric(resid(fit_gamm$lme, type = "normalized"))
+shapiro.test(resid_norm)
+bptest(lm(resid_norm ~ fitted(fit_gamm$gam)))
+acf(resid_norm, main = "Residual autocorrelation, AR(1)-corrected")
+```
+
+The normalized residuals — the model's own accounting for the AR(1) structure, standardized so they should look like independent noise if the correction worked — pass both tests (Shapiro-Wilk $p = 0.619$, Breusch-Pagan $p = 0.363$), and the lag-1 autocorrelation that was above 0.5 in the naive fit is now essentially zero. The correction did what it was supposed to.
+
+## Interpretation
+
+The naive GAM and the GAMM agree that Dissolved Oxygen is declining, but they disagree on *how*: ignoring residual autocorrelation made the long-term trend look like a genuinely wiggly, complex trajectory (edf 3.85); accounting for it collapsed the trend back down to a simple straight line (edf 1.00) declining at roughly `r sprintf("%.1f%%", abs((exp(slope_per_year) - 1) * 100))` per year, still clearly significant once the correlation structure is given the noise it was actually explaining. That distinction isn't cosmetic — a regulator or client reading "Dissolved Oxygen shows a complex, accelerating decline" would reasonably ask different questions than one reading "Dissolved Oxygen is declining steadily and slowly," and the first version of that claim was an artifact of an assumption the naive fit never checked. The general lesson carries beyond this one series: fitting a GAM to a regularly sampled monitoring record and reading its smooth-term significance at face value skips a step: checking `acf(resid(fit))` first, and reaching for `gamm()` with a correlation structure when it shows real autocorrelation, the way it did here.

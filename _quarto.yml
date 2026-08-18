@@ -8,6 +8,7 @@ project:
     - chapters/knn-regression.qmd
     - chapters/loess-smoothing.qmd
     - chapters/gam.qmd
+    - chapters/gamm.qmd
     - chapters/linear-vs-nonlinear-comparison.qmd
 
 website:
@@ -25,6 +26,7 @@ website:
           - chapters/knn-regression.qmd
           - chapters/loess-smoothing.qmd
           - chapters/gam.qmd
+          - chapters/gamm.qmd
           - chapters/linear-vs-nonlinear-comparison.qmd
 
 format:

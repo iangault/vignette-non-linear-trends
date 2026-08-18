@@ -1,8 +1,172 @@
 ---
 title: "Generalized Additive Models"
-subtitle: "Dissolved Oxygen — a seasonal cycle riding on a longer-term trend"
+subtitle: "Total Copper — step-like, non-monotonic change with no fixed pattern"
 ---
 
-Dissolved Oxygen combines a within-year seasonal cycle with a slower multi-year trend, a shape no single knot or local average handles well. A generalized additive model fits this with a smooth basis function via `mgcv`, restoring the confidence bands and significance testing that k-nearest-neighbors and LOESS give up.
+```{r}
+#| label: setup
+#| include: false
+library(dplyr)
+library(ggplot2)
+library(mgcv)
+library(lmtest)
+source("R/utils.R")
+non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_types = FALSE)
+cu_wq <- non_linear_wq |> filter(analyte == "Total Copper")
+```
 
-*Analysis not yet written.*
+## What a GAM is
+
+Total Copper doesn't settle into flat-then-sloped segments (piecewise regression), a single level jump (changepoint detection), or a repeating annual shape with a correlated-noise problem (GAMM, next chapter, on Dissolved Oxygen). It moves up, up again into a brief spike, back down, further down below where it started, then partway back up — a shape with no periodic structure and no small set of knots an analyst would confidently place by eye. That's the case a GAM is actually for.
+
+**Still linear, in the sense that matters.** A GAM's linear predictor is $\eta = \beta_0 + f(x)$, where $f$ is a *smooth function* built from a spline basis rather than a single coefficient times $x$ — a weighted sum of many small, fixed basis columns, $f(x) = \sum_k \beta_k b_k(x)$. Once those columns are built, fitting the model is estimating coefficients that combine them additively, the same "linear in the parameters" idea that let a hinge term count as `lm()` in the piecewise chapter. What's different is how much basis-building `mgcv::gam()` does automatically: instead of one or two hand-picked hinge terms, it builds a rich basis (up to `k` candidate knots) and a fitted **smoothing penalty** decides how much of that flexibility survives, shrinking toward a straight line wherever the data doesn't support the extra wiggle.
+
+**Semi-parametric, not fully either.** The basis dimension `k` caps how wiggly the fit is *allowed* to get; the fitted penalty decides how much of that allowance actually gets used, based on the data. That's closer to "as flexible as the data supports" than either a fixed parametric form (piecewise regression) or no form at all (k-NN, LOESS).
+
+**Inferential, not just a curve.** The fitted smooth carries an effective degrees of freedom (edf) and a significance test — is this smooth distinguishable from flat at all — the same kind of reportable number a slope or a breakpoint gives elsewhere in this vignette. That's what makes "is this concentration currently rising, falling, or holding" an answerable, testable question below, rather than a read off a noisy plot.
+
+## The shape in the record
+
+```{r}
+#| label: cu-raw-series
+#| message: false
+ggplot(cu_wq, aes(year_frac, result)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(se = FALSE) +
+  labs(title = "Total Copper — raw scale", y = "Copper (µg/L)") +
+  nlt_theme
+```
+
+An early low, stable period; a rise to a higher plateau; a brief spike well above that; a drop back down; a further drop below the original level; and a partial recovery — none of it periodic, none of it a straight line or two.
+
+```{r}
+#| label: cu-log-check
+fit_check_log <- gam(log(result) ~ s(year_frac, bs = "tp", k = 20), data = cu_wq, method = "REML")
+fit_check_raw <- gam(result ~ s(year_frac, bs = "tp", k = 20), data = cu_wq, method = "REML")
+bptest(lm(resid(fit_check_log) ~ fitted(fit_check_log)))
+bptest(lm(resid(fit_check_raw) ~ fitted(fit_check_raw)))
+```
+
+Total Copper is a concentration, so the usual dilution/loading argument for logging applies, and the check confirms it: the raw-scale fit fails Breusch-Pagan decisively ($p = 1.2\times10^{-12}$), the log-scale fit doesn't ($p = 0.232$). `log(result)` is used from here on.
+
+## Fitting the shape
+
+```{r}
+#| label: cu-gam-fit
+fit_cu <- gam(log(result) ~ s(year_frac, bs = "tp", k = 20), data = cu_wq, method = "REML")
+summary(fit_cu)
+```
+
+`k = 20` gives the basis enough candidate knots to represent several sharp transitions if the data supports them — a small `k` would cap the fit's flexibility below what this record's shape actually needs, forcing the penalty to smooth over real transitions it doesn't have the basis capacity to represent. The fitted edf of 15.9 shows the penalty used most of that allowance rather than shrinking toward a straight line, and the smooth term is significant by a wide margin ($p < 2\times10^{-16}$).
+
+## The fitted curve, with a confidence band
+
+```{r}
+#| label: cu-ci-band-plot
+grid <- data.frame(year_frac = seq(min(cu_wq$year_frac), max(cu_wq$year_frac), length.out = 300))
+pred <- predict(fit_cu, newdata = grid, se.fit = TRUE)
+grid <- grid |>
+  mutate(
+    fit = pred$fit,
+    lower = exp(fit - 1.96 * pred$se.fit),
+    upper = exp(fit + 1.96 * pred$se.fit),
+    fit = exp(fit)
+  )
+
+ggplot() +
+  geom_point(data = cu_wq, aes(year_frac, result), alpha = 0.4, color = "grey40") +
+  geom_ribbon(data = grid, aes(year_frac, ymin = lower, ymax = upper), fill = "steelblue", alpha = 0.25) +
+  geom_line(data = grid, aes(year_frac, fit), color = "steelblue", linewidth = 1) +
+  labs(title = "Total Copper — fitted GAM with 95% confidence band", y = "Copper (µg/L)") +
+  nlt_theme
+```
+
+`predict(fit_cu, se.fit = TRUE)` returns a standard error alongside the fitted value at every point, the same as `predict.lm()` would — a GAM's confidence band isn't a special case, it's the ordinary consequence of the smooth term being a fitted linear combination of coefficients with a covariance matrix, propagated through `exp()` for the raw-scale band shown here. The band widens over the brief spike around year 4.5–5, where only a few months of data inform that stretch of the curve, and the fitted peak (about `r round(max(grid$fit), 1)` µg/L) sits below the highest individual raw readings there — a short, few-month excursion is exactly what a smoothing penalty will partly discount, since a spike consistent with only a handful of points is harder to distinguish from noise than a shift that persists across many.
+
+## Where the record is rising, falling, or flat
+
+A single edf and p-value confirm the smooth term overall isn't flat, but say nothing about *where* the record is moving in a given direction, which is the question a regulator actually asks. That question is answered by the derivative of the fitted curve — its local slope — and a confidence interval on that derivative, estimated by the same finite-difference approach used in the GAMM chapter: nudge the fitted curve forward and backward by a small step, take $(\hat y(t+h) - \hat y(t-h))/2h$ as the local slope, and get its standard error from `predict(..., type = "lpmatrix")` propagated through the model's coefficient covariance.
+
+```{r}
+#| label: cu-derivative-calc
+h <- 1e-3
+Xp_plus  <- predict(fit_cu, newdata = data.frame(year_frac = grid$year_frac + h), type = "lpmatrix")
+Xp_minus <- predict(fit_cu, newdata = data.frame(year_frac = grid$year_frac - h), type = "lpmatrix")
+D <- (Xp_plus - Xp_minus) / (2 * h)
+
+beta <- coef(fit_cu)
+Vp <- vcov(fit_cu)
+deriv <- as.numeric(D %*% beta)
+se <- sqrt(rowSums((D %*% Vp) * D))
+
+grid <- grid |>
+  mutate(
+    deriv_lower = deriv - 1.96 * se,
+    deriv_upper = deriv + 1.96 * se,
+    trend = case_when(
+      deriv_lower > 0 ~ "rising",
+      deriv_upper < 0 ~ "falling",
+      TRUE ~ "flat"
+    )
+  )
+
+table(grid$trend)
+```
+
+```{r}
+#| label: cu-derivative-plot
+grid_seg <- grid |>
+  mutate(year_frac_end = lead(year_frac), fit_end = lead(fit)) |>
+  filter(!is.na(year_frac_end))
+
+trend_colors <- c(rising = "#2E7D32", falling = "#C62828", flat = "grey55")
+
+ggplot() +
+  geom_point(data = cu_wq, aes(year_frac, result), alpha = 0.35, color = "grey40") +
+  geom_segment(
+    data = grid_seg,
+    aes(x = year_frac, y = fit, xend = year_frac_end, yend = fit_end, color = trend),
+    linewidth = 1.1
+  ) +
+  scale_color_manual(values = trend_colors, name = "local trend") +
+  labs(title = "Total Copper — fitted trajectory by significance of local slope", y = "Copper (µg/L)") +
+  nlt_theme +
+  theme(legend.position = "right")
+```
+
+The coloring tracks the shape described from the raw plot, but now with each stretch labeled by whether the change is statistically distinguishable from flat: a significant rise onto the first plateau, a significant further rise into the spike, a significant fall back down, a significant fall below the original baseline, a significant partial recovery, and flat stretches — not significantly different from zero slope — everywhere the record is actually holding at a level rather than moving. That's the concrete answer to "is it currently getting better or worse": at any point on this record, the color at that point is a tested answer, not a visual impression.
+
+## Model diagnostics
+
+```{r}
+#| label: cu-bptest
+bptest(lm(resid(fit_cu) ~ fitted(fit_cu)))
+```
+
+```{r}
+#| label: cu-shapiro
+shapiro.test(resid(fit_cu))
+```
+
+Both tests fail to reject their null: the Breusch-Pagan test ($p = 0.232$) finds no evidence of heteroscedasticity, and the Shapiro-Wilk test ($p = 0.266$) finds no evidence of non-normal residuals, on the log scale settled on above.
+
+## Why not just engineer the right OLS features
+
+The GAM's spline basis is still feature engineering handed to a linear fit, the same category of move as the piecewise chapter's hand-built hinge term. Unlike Dissolved Oxygen's clean annual cycle, though, there's no `sin`/`cos` shortcut here — nothing about a step-and-spike pattern is periodic. The honest OLS alternative is a plain polynomial in `year_frac`, tried at increasing degree:
+
+```{r}
+#| label: cu-ols-comparison
+poly_fits <- lapply(c(4, 8, 12, 16), function(deg) lm(log(result) ~ poly(year_frac, deg), data = cu_wq))
+
+data.frame(
+  model = c(sprintf("OLS, degree-%d polynomial", c(4, 8, 12, 16)), "GAM"),
+  AIC = c(sapply(poly_fits, AIC), AIC(fit_cu)),
+  R2_or_dev_explained = c(sapply(poly_fits, function(f) summary(f)$r.squared), summary(fit_cu)$dev.expl)
+)
+```
+
+Even at degree 16 — well past where a polynomial starts ringing at the record's edges (Runge's phenomenon) rather than fitting anything real — the polynomial's $R^2$ (0.79) and AIC (56.3) both trail the GAM's (0.84 deviance explained, AIC 16.5) by a wide margin, and the gap isn't closing quickly as degree increases. The reason is structural, not just a matter of trying harder: a polynomial term is *global* — every coefficient shapes the curve's behavior everywhere, so fitting a sharp local step or spike well tends to distort the fit far away from it, or costs an escalating number of parameters trying not to. A spline basis is *local* — each basis function's influence is confined to a neighborhood of its knot, so representing one sharp transition doesn't fight with representing another one elsewhere in the record. That locality, not just a higher effective degree, is what a hand-built polynomial feature can't reproduce no matter how high its degree goes.
+
+## Interpretation
+
+Total Copper moved through five distinct, individually significant phases over the twelve-year record: a rise onto an elevated plateau, a further rise into a brief spike, a fall back down, a fall below the original baseline, and a partial recovery — each stretch tested, not eyeballed, via the derivative-significance plot above, and none of it describable by a straight line, a single knot, or a periodic function. The GAM's smoothing penalty found this shape without being told any of it in advance, using only a smoothness assumption, and a degree-16 polynomial handed every opportunity to match it still fell well short — the concrete case, in this vignette, for reaching past a fixed parametric form when a series' shape isn't known ahead of time. For a regulator asking "is this currently a problem," the record closes on the flat, partially-recovered plateau rather than the elevated spike, which is a materially different answer than either the raw high-water mark or a single straight-line trend fit to the whole record would give.

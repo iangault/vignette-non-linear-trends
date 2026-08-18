@@ -1,10 +1,12 @@
 # Shared plotting constants for the nonlinear trends vignette.
 
 # Six colors from the ltc "reading" palette (ltc::ltc("reading")), keyed to
-# the six case-study analytes so each keeps one color across every figure
-# it appears in.
+# the original six case-study analytes so each keeps one color across every
+# figure it appears in. A seventh, "#A85751" (muted brick red), was added by
+# hand for Total Copper — not drawn from the ltc palette, chosen to stay
+# visually distinct from the terracotta already in use.
 project_palette <- c(
-  "#57717C", "#5F97A4", "#919F89", "#C97B63", "#B8A34C", "#8C6FA0"
+  "#57717C", "#5F97A4", "#919F89", "#C97B63", "#B8A34C", "#8C6FA0", "#A85751"
 )
 
 analyte_colors <- c(
@@ -13,7 +15,8 @@ analyte_colors <- c(
   "Total Phosphorus"      = project_palette[3],
   "Dissolved Oxygen"      = project_palette[4],
   "Total Chloride"        = project_palette[5],
-  "Total Zinc"            = project_palette[6]
+  "Total Zinc"            = project_palette[6],
+  "Total Copper"          = project_palette[7]
 )
 
 analyte_levels <- names(analyte_colors)
