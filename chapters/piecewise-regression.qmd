@@ -27,13 +27,11 @@ A straight-line regression assumes one slope holds across the whole record. Thre
 
 Total Nitrogen — flat, then a genuine slope break, with no discontinuity in level — belongs at the third stage: two slopes joined at a single knot.
 
-A hinge function is feature engineering on the regressor, not a link function. It's a new column handed to an ordinary least-squares fit, estimated the usual way — "linear regression" means linear *in the coefficients*, not linear in $x$, so a model with a hinge term is still fit by `lm()`. A link function is a different mechanism: a transform on the response's mean, connecting it to the linear predictor, relevant to generalized linear models rather than to feature engineering on $x$.
+A hinge function is feature engineering on the regressor, not a link function — see [The Regression Framework](regression-framework.qmd) for why a model with a hinge term is still fit by `lm()`, and how that differs from a link function.
 
 ### Why `log(result)`
 
-Concentration data is strictly positive and typically right-skewed — the processes that move a concentration, such as dilution, loading, and removal, tend to act multiplicatively, a fixed-percentage effect on the current level rather than a fixed absolute amount, which generates a log-normal-shaped distribution almost by construction. Fitting on `log(result)` rather than `result` directly addresses two ordinary-least-squares assumptions the raw scale usually violates: **homoscedasticity** (raw-scale concentration variance typically grows with the mean) and **normality of residuals** (right skew on the raw scale becomes closer to symmetric on the log scale).
-
-One consequence worth flagging: a hinge-term coefficient estimated on `log(result)` is a rate in log-units per year, not raw units per year. The number worth reporting is the back-transformed one, $(\exp(\hat\beta) - 1) \times 100\%$, not the raw log-scale coefficient.
+Concentration data is fit on the log scale throughout this site, for the multiplicative-process reasons and diagnostic payoff covered in [Transformations](transformations.qmd) — including the back-transformation, $(\exp(\hat\beta) - 1) \times 100\%$, used for the post-break rate reported below.
 
 ## The shape in the record
 
@@ -113,7 +111,7 @@ ggplot(tn, aes(year_frac, log(result))) +
 
 ## Model diagnostics
 
-The segmented fit carries the same ordinary-least-squares assumptions as the underlying linear model — homoscedasticity and normally distributed residuals.
+The segmented fit carries the same ordinary-least-squares assumptions as the underlying linear model — homoscedasticity and normally distributed residuals (see [Transformations](transformations.qmd) for why these checks matter and what they do and don't catch).
 
 ```{r}
 #| label: tn-bptest

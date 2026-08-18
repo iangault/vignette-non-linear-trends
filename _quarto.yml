@@ -3,6 +3,8 @@ project:
   execute-dir: project
   render:
     - index.qmd
+    - chapters/regression-framework.qmd
+    - chapters/transformations.qmd
     - chapters/piecewise-regression.qmd
     - chapters/changepoint-detection.qmd
     - chapters/knn-regression.qmd
@@ -19,15 +21,34 @@ website:
     search: true
     contents:
       - index.qmd
-      - section: "Methods"
+      - section: "Framework"
         contents:
-          - chapters/piecewise-regression.qmd
-          - chapters/changepoint-detection.qmd
-          - chapters/knn-regression.qmd
-          - chapters/loess-smoothing.qmd
-          - chapters/gam.qmd
-          - chapters/gamm.qmd
-          - chapters/linear-vs-nonlinear-comparison.qmd
+          - text: "1. The Regression Framework"
+            href: chapters/regression-framework.qmd
+          - text: "2. Transformations"
+            href: chapters/transformations.qmd
+      - section: "Parametric Methods"
+        contents:
+          - text: "3. Piecewise / Segmented Linear Regression"
+            href: chapters/piecewise-regression.qmd
+          - text: "4. Changepoint Detection"
+            href: chapters/changepoint-detection.qmd
+      - section: "Nonparametric Methods"
+        contents:
+          - text: "5. k-Nearest Neighbors Regression"
+            href: chapters/knn-regression.qmd
+          - text: "6. LOESS Smoothing"
+            href: chapters/loess-smoothing.qmd
+      - section: "Semi-Parametric Methods"
+        contents:
+          - text: "7. Generalized Additive Models"
+            href: chapters/gam.qmd
+          - text: "8. Generalized Additive Mixed Models"
+            href: chapters/gamm.qmd
+      - section: "Comparison"
+        contents:
+          - text: "9. Linear vs. Nonlinear Comparison"
+            href: chapters/linear-vs-nonlinear-comparison.qmd
 
 format:
   html:

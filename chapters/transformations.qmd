@@ -1,0 +1,117 @@
+---
+title: "Transformations"
+subtitle: "Three different tools for a response that doesn't fit a straight line cleanly, and how to tell which one is needed"
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(dplyr)
+library(ggplot2)
+library(lmtest)
+source("R/utils.R")
+if (!file.exists("data/synthetic/non_linear_wq.csv")) {
+  source("R/generate_synthetic_data.R")
+}
+non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_types = FALSE)
+```
+
+## Three tools, easy to conflate
+
+A response with a restricted range — a concentration, which can't go negative — routinely needs some kind of correction before ordinary least squares is a defensible fit. Three different moves get reached for, and they aren't interchangeable:
+
+- **Transform the response** — `log(result)` instead of `result`. This changes what OLS's estimand *is*: the fitted mean becomes the conditional mean of `log(result)`, not of `result`. It's a data preparation step, done before the model ever sees the numbers.
+- **Feature-engineer the regressor** — `year_frac^2`, a hinge term `pmax(0, year_frac - c)`. This changes the *shape* of the systematic component while leaving the response and the link alone. Still ordinary least squares, still linear in the coefficients (see [The Regression Framework](regression-framework.qmd)) — a hinge term is just one more column handed to `lm()`.
+- **Change the link function** — a generalized linear model with a log link, `log(E[Y|X]) = X\beta`. This changes how the *mean* relates to the linear predictor, not the response itself.
+
+The first and third both involve the word "log" applied to a concentration, which is exactly why they get blurred together. They aren't the same model: $E[\log(Y)\mid X]$ (log-transform-then-OLS) and $\log(E[Y\mid X])$ (a GLM log link) are different quantities by Jensen's inequality, and only coincide in special cases. Every case study on this site uses the first — log-transform-then-OLS — on the strength of the multiplicative-process argument below, not a GLM log link. That's a deliberate, load-bearing choice for this project, not an oversight; a log-link GLM remains a reasonable alternative worth naming rather than silently ruling out.
+
+## Diagnosing which one is needed
+
+The response-transform and the regressor-feature-engineering questions get resolved separately, in a fixed order, because they fail differently.
+
+### Step 1 — look at the raw shape before touching residuals
+
+If `result` (or `log(result)`) plotted against the regressor is already curved — a plateau, a kink, a shape that isn't monotonic — no transformation of the response fixes that. Logging re-scales the y-axis; it doesn't turn a hump into a line. A curved raw shape is a signal to feature-engineer the regressor, not to reach for `log()`.
+
+### Step 2 — fit the straight line anyway, and read the residuals, not the raw data
+
+This is where the two problems actually separate:
+
+- Residuals show a *pattern against the regressor* — not scattered evenly, but systematically high in some stretches and low in others — the mean structure hasn't been captured yet. That's a regressor problem.
+- Residuals look patternless against the regressor, but their *spread* grows with the fitted value, or a normality check fails — that's a distributional problem in the response. Breusch-Pagan (constant variance) and Shapiro-Wilk (normal residuals) are the formal versions of exactly this check, and they're run in every method chapter on this site.
+
+### The catch: passing tests doesn't mean the shape is right
+
+A bad mean-structure fit can pass both formal tests, or fail them for the wrong reason. Breusch-Pagan and Shapiro-Wilk are diagnostics for the *error distribution*, not for whether the mean structure is right — a systematically wrong shape can slip past them, and a severely wrong shape can fail them in a way that has nothing to do with variance or normality of the true noise. Two examples from this project's own data show both failure modes.
+
+### Example: a shape problem that clears both formal tests
+
+Total Nitrogen is flat for the first several years of the record, then rises — the shape [`piecewise-regression.qmd`](piecewise-regression.qmd) fits with a hinge term. Fit a plain straight line to `log(result)` instead, ignoring that break:
+
+```{r}
+#| label: tn-straight-line
+tn <- non_linear_wq |> filter(analyte == "Total Nitrogen")
+fit_tn_line <- lm(log(result) ~ year_frac, data = tn)
+bptest(fit_tn_line)
+shapiro.test(resid(fit_tn_line))
+```
+
+Both tests pass comfortably (Breusch-Pagan $p = 0.127$, Shapiro-Wilk $p = 0.622$) — nothing here would flag the log-transform as wrong, because it isn't; the problem is entirely on the regressor side. It only shows up by looking directly at the residuals against the regressor:
+
+```{r}
+#| label: tn-resid-plot
+tn <- tn |> mutate(resid = resid(fit_tn_line))
+
+ggplot(tn, aes(year_frac, resid)) +
+  geom_point(alpha = 0.5) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_smooth(se = FALSE) +
+  labs(title = "Total Nitrogen — residuals from a straight-line fit", y = "residual (log scale)") +
+  nlt_theme
+```
+
+The residuals aren't scattered evenly around zero — they run positive over the first few years, dip negative through the middle of the record, then swing positive again toward the end, a wave the flat null-pattern of a correctly specified mean wouldn't produce. Breusch-Pagan and Shapiro-Wilk don't test for this shape — they test the spread and distribution of the residuals, which can both look fine even while the mean structure is wrong in a way that would matter a great deal to the actual trend estimate. This is a regressor problem: a hinge term, not a different response transform, is what [`piecewise-regression.qmd`](piecewise-regression.qmd) adds.
+
+### Example: a shape problem severe enough to fail both formal tests too
+
+Total Copper moves through a step, a spike, and a partial recovery — a shape no straight line or single hinge represents. Fitting a plain straight line, first on the raw scale:
+
+```{r}
+#| label: cu-straight-line-raw
+cu <- non_linear_wq |> filter(analyte == "Total Copper")
+fit_cu_raw <- lm(result ~ year_frac, data = cu)
+bptest(fit_cu_raw)
+shapiro.test(resid(fit_cu_raw))
+```
+
+Shapiro-Wilk fails decisively ($p = 1.4\times10^{-10}$) and Breusch-Pagan is borderline ($p = 0.060$). The usual read on a failed Shapiro-Wilk for concentration data is "log it" — dilution and loading processes are multiplicative, so `log(result)` is the standard first move, and it does help:
+
+```{r}
+#| label: cu-straight-line-log
+fit_cu_log <- lm(log(result) ~ year_frac, data = cu)
+bptest(fit_cu_log)
+shapiro.test(resid(fit_cu_log))
+```
+
+Breusch-Pagan now passes cleanly ($p = 0.159$), but Shapiro-Wilk still fails ($p = 1.1\times10^{-4}$) — logging fixed the variance problem but not the residual distribution. Checking the residuals against the regressor shows why: even on the log scale, they're nowhere near patternless.
+
+```{r}
+#| label: cu-resid-buckets
+cu <- cu |> mutate(resid = resid(fit_cu_log),
+                    year_bucket = cut(year_frac, breaks = c(0, 2, 4, 5, 6, 8, 10, 12), include.lowest = TRUE))
+
+cu |>
+  summarise(mean_resid = mean(resid), .by = year_bucket) |>
+  arrange(year_bucket)
+```
+
+The residual means swing from about $-0.53$ to $+0.81$ and back across these windows — far from the small, patternless noise a correctly specified mean structure would leave behind. Logging was still the right call here (it's what fixed the variance problem, and the multiplicative-process argument for it stands on its own), but it was never going to fix this: a step, a spike, and a partial recovery isn't a distributional problem, it's a shape no straight line — logged or not — was ever going to represent. That combination, a real transform-the-response need *and* a residual shape a hinge term can't cleanly represent either, is what motivates a fully flexible regressor-side model rather than more feature engineering — see [`gam.qmd`](gam.qmd).
+
+## Why log a concentration in the first place
+
+The multiplicative-process argument, stated once here rather than re-derived in every chapter: concentration data is strictly positive, and the processes that move it — dilution, loading, removal — tend to act as a fixed *percentage* change on the current level rather than a fixed absolute amount. A process like that generates a distribution that's approximately log-normal by construction: right-skewed on the raw scale, closer to symmetric once logged. Fitting `log(result)` rather than `result` is what typically fixes the two ordinary-least-squares assumptions raw concentration data tends to violate — homoscedasticity and normality of residuals — and it has a direct interpretive payoff too: a coefficient estimated on `log(result)` is a rate in log-units per period, and back-transforming it, $(\exp(\hat\beta) - 1) \times 100\%$, gives the number that actually gets reported — a constant percentage rate of change, not a raw-unit slope. Every fitted rate reported on this site is stated this way.
+
+## The bridge to a fully flexible regressor
+
+A hinge function, $(x-c)_+ = \max(0, x-c)$, is the simplest possible case of feature-engineering the regressor: one knot, one new column, still fit by `lm()`. A generalized additive model's smooth term generalizes the same idea — many small basis functions instead of one hinge, combined additively, with a fitted penalty deciding how much of that flexibility survives rather than an analyst placing knots by eye. The lineage is straight-line OLS $\to$ hinge-term feature engineering $\to$ many-basis-function smooth term, and it's the same "linear in the parameters" backbone the whole way — what changes across that lineage is how many, and how flexible, the basis functions handed to the fit are allowed to be.

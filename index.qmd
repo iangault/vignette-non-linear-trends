@@ -19,7 +19,7 @@ non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_ty
 
 Environmental data rarely behaves as neatly as the models used to describe it. A straight-line trend is a fine description when a concentration is genuinely rising or falling at a constant rate — but many real records don't look like that: a flat baseline that suddenly starts climbing, a level that jumps once and holds, a rise that levels off into a plateau, a seasonal cycle riding on top of a slower trend. Forcing a straight line onto any of these shapes produces a technically-fitted but practically misleading answer: it can make a plateaued analyte look like it's still climbing, or smear a one-time step change into what reads as a gradual trend.
 
-This site works through five methods for picking up on those shapes, in order of increasing flexibility — piecewise/segmented regression, changepoint detection, k-nearest-neighbors regression, LOESS smoothing, and generalized additive models — plus a closing comparison of when the added flexibility is actually worth it against a plain linear fit.
+This site opens with the general regression framework those shapes get read against, and the transformation toolkit for telling a shape problem in the regressor from a distributional problem in the response ([The Regression Framework](chapters/regression-framework.qmd), [Transformations](chapters/transformations.qmd)). It then works through methods for picking up on those shapes, in order of increasing flexibility — piecewise/segmented regression, changepoint detection, k-nearest-neighbors regression, LOESS smoothing, generalized additive models, and generalized additive mixed models for correlated residuals — plus a closing comparison of when the added flexibility is actually worth it against a plain linear fit.
 
 ## What ordinary least squares is actually doing
 
@@ -47,7 +47,7 @@ Two different jobs a model can do, and every case study on this site is doing th
 
 Not every method here can do inference, and that's a structural property of the fitting procedure, not a per-project choice:
 
-- **Inference-capable, and therefore prediction-capable too:** linear regression, piecewise/segmented regression, changepoint detection, GAM. Each produces an interpretable, testable parameter — a slope, a breakpoint location, a shift, a significance test on a smooth term — and the same fit gives a $\hat y$ for free.
+- **Inference-capable, and therefore prediction-capable too:** linear regression, piecewise/segmented regression, changepoint detection, GAM, GAMM. Each produces an interpretable, testable parameter — a slope, a breakpoint location, a shift, a significance test on a smooth term — and the same fit gives a $\hat y$ for free.
 - **Prediction-only, structurally:** k-nearest-neighbors and LOESS. Neither ever produces a coefficient or a p-value — there is no mechanism for one to come out of. What they supply is $\hat y$ within the observed range of $x$; LOESS is a smoother, less boundary-biased version of the same job k-nearest-neighbors does.
 
 ## A model is an abstraction, not a recovery
@@ -90,4 +90,4 @@ ggplot(non_linear_wq |> order_analytes(), aes(date, result)) +
 
 ## Scope
 
-This is inference on the observed record — is there a real trend, where and how did it change — not forecasting. k-nearest-neighbors, LOESS, and GAM all extrapolate poorly past the range of the fitted data, so projecting beyond the observed period is out of scope throughout.
+This is inference on the observed record — is there a real trend, where and how did it change — not forecasting. k-nearest-neighbors, LOESS, GAM, and GAMM all extrapolate poorly past the range of the fitted data, so projecting beyond the observed period is out of scope throughout.

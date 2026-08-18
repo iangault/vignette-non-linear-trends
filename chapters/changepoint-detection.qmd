@@ -120,7 +120,7 @@ ggplot(cond, aes(year_frac, log(result))) +
 
 ## Model diagnostics
 
-The two-segment fit is still an OLS regression, so the same assumptions apply: homoscedasticity and normally distributed residuals.
+The two-segment fit is still an OLS regression, so the same assumptions apply: homoscedasticity and normally distributed residuals (see [Transformations](transformations.qmd)).
 
 ```{r}
 #| label: cond-bptest
