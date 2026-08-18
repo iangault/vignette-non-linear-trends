@@ -31,9 +31,9 @@ A hinge function is feature engineering on the regressor, not a link function. I
 
 ### Why `log(result)`
 
-Concentration data is strictly positive and typically right-skewed — the processes that move a concentration, such as dilution, loading, and removal, tend to act multiplicatively, a fixed-percentage effect on the current level rather than a fixed absolute amount, which generates a log-normal-shaped distribution almost by construction. Fitting on `log(result)` rather than `result` directly addresses two ordinary-least-squares assumptions the raw scale usually violates: **homoscedasticity** (raw-scale concentration variance typically grows with the mean) and **normality of residuals** (right skew on the raw scale becomes closer to symmetric on the log scale). The fit that follows models $E[\log(Y) \mid X]$ — $Y$ is treated as log-normal, not Gaussian on its original scale.
+Concentration data is strictly positive and typically right-skewed — the processes that move a concentration, such as dilution, loading, and removal, tend to act multiplicatively, a fixed-percentage effect on the current level rather than a fixed absolute amount, which generates a log-normal-shaped distribution almost by construction. Fitting on `log(result)` rather than `result` directly addresses two ordinary-least-squares assumptions the raw scale usually violates: **homoscedasticity** (raw-scale concentration variance typically grows with the mean) and **normality of residuals** (right skew on the raw scale becomes closer to symmetric on the log scale).
 
-One consequence worth flagging up front: a hinge-term coefficient estimated on `log(result)` is a rate in log-units per year, not raw units per year. For small rates, $\log(1+r) \approx r$, so a coefficient like 0.14 is roughly a 14% per year change — but the number worth reporting is the back-transformed one, $(\exp(\hat\beta) - 1) \times 100\%$, not the raw log-scale coefficient.
+One consequence worth flagging: a hinge-term coefficient estimated on `log(result)` is a rate in log-units per year, not raw units per year. The number worth reporting is the back-transformed one, $(\exp(\hat\beta) - 1) \times 100\%$, not the raw log-scale coefficient.
 
 ## The shape in the record
 
@@ -53,7 +53,7 @@ ggplot(tn, aes(year_frac, log(result))) +
   nlt_theme
 ```
 
-The log-scale series is the closer match to two straight segments joined at a bend, consistent with the log-transform reasoning above.
+The log-scale series is not too different from the raw scale in this example, but is done forbetter diagnostic results. 
 
 ## Estimating the breakpoint
 
