@@ -66,6 +66,25 @@ The methods on this site sit on a spectrum from parametric to nonparametric:
 
 Model choice isn't just an academic distinction — it changes what gets reported and what action follows. A plateau misread as ongoing growth can trigger a treatment upgrade or permit renegotiation nobody actually needed. A step change misread as a gradual trend sends the investigation toward the wrong cause — a slow watershed process instead of the operational event or permit change that actually happened — and delays the fix. And a flexible model fit to pure noise manufactures a trend that isn't there, triggering escalation over nothing. The reverse failure carries its own cost: real change dismissed as noise because the model wasn't flexible enough to see it. Guarding against both means using the model whose complexity is actually supported by the data — no more, no less — and being able to explain that choice in plain terms to someone who isn't a statistician, since a result nobody can sanity-check doesn't get trusted enough to act on.
 
+## Start from the goal, not the method
+
+The default reflex, faced with any time series, is to fit a straight line through it. That reflex is itself a form of model misspecification whenever the record isn't actually a straight line — a plateau read as ongoing growth, a step read as a gradual trend, noise read as a trend at all. This site isn't organized around one recommended method; it's a set of starting points, one per goal, each demonstrated on a case study built to need it. The table below maps the goal to the chapter, using the same inference-vs-prediction distinction from above rather than a looser one — nothing in the "start here" column claims a method does more than it structurally can.
+
+The **Linear vs. Nonlinear Comparison** row is worth calling out specifically: fitting a plain linear model alongside a flexible one and comparing them by AIC isn't just the closing chapter's demonstration on two control analytes — it's a general first diagnostic that can be run on *any* series to check whether it needs a shape-specific method at all, before reaching for piecewise regression, changepoint detection, or a GAM.
+
+| What you're trying to find out | Type | Start here | What you get |
+|---|---|---|---|
+| Is there a real trend at all, or would a flexible model just be fitting noise? | Diagnostic / triage — a general first check, not tied to one shape | [Linear vs. Nonlinear Comparison](chapters/linear-vs-nonlinear-comparison.qmd) | An inference answer: tested against "no added complexity is justified" |
+| Flat, then trending, at a point I can roughly guess | Confirmatory — quantifying a break already visible | [Piecewise / Segmented Regression](chapters/piecewise-regression.qmd) | Two slopes and a breakpoint location, each with a confidence interval |
+| Jumped to a new level, and I don't know when | Forensic — locating an unknown event from the data alone | [Changepoint Detection](chapters/changepoint-detection.qmd) | A break location found by search, with a confidence interval and a significance test for whether a break exists at all |
+| No single knot or known curve fits, and I need a defensible significance test | General-purpose / flexible-but-inferential | [Generalized Additive Models](chapters/gam.qmd) | A smooth curve with an effective-degrees-of-freedom count and a significance test on the smooth term |
+| Regularly sampled, and residuals might not be independent (seasonal, monthly monitoring) | Assumption check — corrects a GAM's result, not a new goal | [Generalized Additive Mixed Models](chapters/gamm.qmd) | The same smooth-term test as a GAM, with standard errors that account for correlated residuals |
+| Just want to see the shape of the record before committing to any model form | Exploratory | [k-Nearest Neighbors](chapters/knn-regression.qmd) / [LOESS](chapters/loess-smoothing.qmd) | Prediction only, structurally — no coefficient or p-value comes out of either one |
+
+[The Regression Framework](chapters/regression-framework.qmd) and [Transformations](chapters/transformations.qmd), first, aren't tied to any one row above — they're the shared vocabulary and diagnostic checks every method in the table depends on.
+
+A fitted model from any row above is typically a starting point of its own, not an endpoint — most chapters close with a short note on what a deeper analysis, built on top of what's fitted there, would look like.
+
 ## The case studies
 
 Seven analytes, each chosen to demonstrate a specific shape or to act as a control — monthly sampling, single composite site, 2013–2024.
