@@ -68,7 +68,7 @@ Model choice isn't just an academic distinction — it changes what gets reporte
 
 ## The case studies
 
-Six analytes, each chosen to demonstrate a specific shape or to act as a control — monthly sampling, single composite site, 2013–2024.
+Seven analytes, each chosen to demonstrate a specific shape or to act as a control — monthly sampling, single composite site, 2013–2024.
 
 ```{r}
 #| label: raw-overview
@@ -84,9 +84,10 @@ ggplot(non_linear_wq |> order_analytes(), aes(date, result)) +
 - **Total Nitrogen** — flat, then a genuine slope break. Piecewise/segmented regression: two slopes, one knot, no discontinuity.
 - **Specific Conductance** — a level jump at an unknown location. Changepoint detection: the same "something shifted" question as Total Nitrogen, but without being told where.
 - **Total Phosphorus** — a rise that levels into a plateau. Used twice — k-nearest-neighbors and LOESS, on the same data, for a direct side-by-side.
-- **Dissolved Oxygen** — a seasonal cycle riding on a longer-term trend. GAM: a shape no single knot or local average handles well.
+- **Dissolved Oxygen** — a seasonal cycle riding on a longer-term trend, with residuals correlated month to month. GAMM: whether the trend's significance survives once that correlation is modeled explicitly, rather than assumed away.
 - **Total Chloride** — a genuine, unremarkable straight-line trend. A control: the case where the simple linear model is already the right answer.
 - **Total Zinc** — pure noise, no real trend. The other control: the guard against a flexible model manufacturing a trend that isn't there.
+- **Total Copper** — step-like and non-monotonic: up, up again into a brief spike, back down, further down, then a partial recovery. GAM: a shape with no periodic or polynomial pattern for a hand-built OLS feature to fall back on.
 
 ## Scope
 

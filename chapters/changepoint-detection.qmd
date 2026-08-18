@@ -23,7 +23,15 @@ That's the piecewise-constant case from the previous chapter's three-stage progr
 
 **Why a segment's mean counts as an OLS fit.** `lm(y ~ 1)` on a set of points estimates one coefficient, the intercept, by minimizing the sum of squared residuals $\sum (y_i - \hat\beta_0)^2$. Differentiate with respect to $\hat\beta_0$, set it to zero, and the minimizer is $\hat\beta_0 = \bar y$ — the sample mean. So "each segment's mean is fit by OLS" isn't a loose analogy: an intercept-only regression on a subset of points and the arithmetic mean of that subset are the same number, arrived at by the same minimization, just described two different ways. `lm(log(result) ~ period)` in the Results section below does the same thing with one more coefficient — a shared baseline plus an offset for the second segment — still fit by minimizing squared residuals, which is why it's still legitimate to call this a regression rather than a two-sample test dressed up as one.
 
-What `strucchange::breakpoints()` adds on top of that is a search over *which* split point to use: it fits that OLS regression at every admissible location (via the dynamic-programming algorithm of Bai and Perron, 2003) and returns whichever minimizes the residual sum of squares, rather than requiring a location — or even a starting guess near one, as `segmented()` does — to be supplied up front.
+**Stated as a model.** For a single break at position $\tau$ in the observation sequence, the flat-mean version of this is
+
+$$y_i = \mu_1 \, \mathbb{1}(i \le \tau) + \mu_2 \, \mathbb{1}(i > \tau) + \varepsilon_i,$$
+
+two segment means and an indicator for which segment each observation falls in — exactly the `lm(log(result) ~ period)` fit in the Results section below, once $\tau$ is known. The estimation problem is finding $\hat\tau$ itself:
+
+$$\hat\tau = \arg\min_{\tau} \; \mathrm{RSS}(\tau), \qquad \mathrm{RSS}(\tau) = \sum_{i \le \tau} (y_i - \bar y_{\le \tau})^2 + \sum_{i > \tau} (y_i - \bar y_{> \tau})^2,$$
+
+the split point whose two segment means leave the smallest total squared residual, out of every admissible split. What `strucchange::breakpoints()` adds on top of that is doing this search automatically: it fits the OLS regression at every admissible location (via the dynamic-programming algorithm of Bai and Perron, 2003) and returns whichever minimizes $\mathrm{RSS}(\tau)$, rather than requiring a location — or even a starting guess near one, as `segmented()` does — to be supplied up front.
 
 **If a slope had been present on either side instead, this would look different.** An intercept-only fit assumes a flat mean within each segment; if the data actually trended up or down within a segment, that flat line wouldn't track it, and the leftover trend would typically show up as a violation in the diagnostics below (autocorrelated or trending residuals) or as one segment's fit visibly missing the data on one side. `breakpoints()` doesn't require assuming the answer either way — it accepts any regression formula, so `breakpoints(log(result) ~ year_frac)` fits a non-continuous piecewise-*linear* model instead, a slope and intercept per segment, with the knot still found by search. The "Locating it" section below runs both and lets BIC decide, rather than assuming a flat mean is right: if slopes actually mattered here, the slope-and-intercept form would win, and the write-up would report two rates the way the piecewise chapter does, instead of one level jump.
 
@@ -132,7 +140,17 @@ bptest(fit)
 shapiro.test(resid(fit))
 ```
 
-Both tests fail to reject their null: the Breusch-Pagan test ($p = 0.286$) finds no evidence of heteroscedasticity, and the Shapiro-Wilk test ($p = 0.889$) finds no evidence of non-normal residuals. The fit supports the interpretation below.
+Both tests fail to reject their null: the Breusch-Pagan test ($p = 0.286$) finds no evidence of heteroscedasticity, and the Shapiro-Wilk test ($p = 0.889$) finds no evidence of non-normal residuals.
+
+Neither test checks independence, and monthly data has an obvious way to fail it:
+
+```{r}
+#| label: cond-acf
+acf(resid(fit), main = "Specific Conductance — residual autocorrelation")
+Box.test(resid(fit), lag = 1, type = "Ljung-Box")
+```
+
+Lag-1 autocorrelation is close to zero and the Ljung-Box test finds no evidence against independence ($p = 0.368$). All three assumptions hold, supporting the fit as a defensible basis for the interpretation below.
 
 ## Interpretation
 

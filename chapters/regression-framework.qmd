@@ -5,6 +5,54 @@ subtitle: "Where ordinary least squares sits, and what each method on this site 
 
 ## A model has five moving parts
 
+### Data Modelling Framework
+
+Let us dig into the general **Data Modelling** stage in OLS regression. Conceptually, the OLS regression model can be expressed as:
+
+$$
+\mbox{Response} = \mbox{Systematic Component} + \mbox{Random Component}.
+$${#eq-conceptual_model}
+
+- The **systematic component** represents the mean of the response **which is conditioned on the regressor values**.
+- The **random component** measures the extent to which the observed value of the response might deviate from its mean and is viewed as **random noise**.
+
+For the $i$th observation in our **random sample** or **training data** ($i = 1, \dots, n$), the conceptual model, from @eq-conceptual_model, is mathematically represented as:
+
+$$
+\underbrace{Y_i}_\text{Response}  = \underbrace{\beta_0 + \beta_1 g_1(X_{i, 1}) + \ldots + \beta_k g_k(X_{i,k})}_\text{Systematic Component} + \underbrace{\varepsilon_i.}_\text{Random Component}
+$${#eq-OLS_model}
+
+Note the following:
+
+- The response $Y_i$ is equal to the sum of $k + 2$ terms on the right-hand side.
+- The systematic component is the sum of:
+    - An **unknown intercept** $\beta_0$ and
+    - $k$ **regressor functions** $g_j(X_{i,j})$ ($j = 1, \dots, k$) multiplied by their respective **unknown regression coefficient** $\beta_j$.
+- $\varepsilon_i$ is the **random noise** for the $i$th observation.
+
+#### Modelling Assumptions
+
+The model in @eq-OLS_model above for $Y_i$ is more detailed as follows:
+
+- The response $Y_i$ depends on the **linear combination** of the functions $g_j(\cdot)$ of $k$ regressors $X_{i, j}$ of different types (continuous and discrete).
+
+- Each function $g_j(X_{i,j})$ has an associated regression coefficient. These parameters $\beta_{1}, \dots, \beta_{k}$ represent how much the response is expected to increase or decrease when the function $g_j(X_{i,j})$ changes by one unit of the $j$th regressor. An additional parameter, $\beta_0$, represents the mean of the response when all the $k$ functions $g_j(X_{i,j})$ are equal to zero. All these elements represent the systematic component of the model.
+
+- The term $\varepsilon_i$ is an unobserved random variable and represents the random component. These variables are **usually** assumed to be **normally distributed** with **mean of zero** and a **common variance** $\sigma^2$ (i.e., **homoscedasticity**). Moreover, all $\varepsilon_i$s are assumed to be **independent**.
+
+::: {.callout-tip}
+## Definition of random component assumptions in OLS
+
+$$
+\begin{gather*}
+\mathbb{E}(\varepsilon_i) = 0 \\
+\text{Var}(\varepsilon_i) = \sigma^2 \\
+\varepsilon_i \sim \mathcal{N}(0, \sigma^2) \\
+\varepsilon_i \perp \!\!\! \perp \varepsilon_\ell \; \; \; \; \text{for} \; i \neq \ell  \; \; \; \; \text{(independence)}.
+\end{gather*}
+$$
+:::
+
 ### The five parts
 
 Fitting a regression model means making five separate choices, whether or not they're stated explicitly:
@@ -43,4 +91,4 @@ A **categorical** regressor doesn't add a dimension the same way a second contin
 
 ## What comes next
 
-The rest of this site works through methods that each change one slot of the framework above, in order of increasing flexibility: a hinge term on the regressor (piecewise regression), a mean shift at an unknown location (changepoint detection), fully nonparametric local averaging (k-nearest-neighbors, LOESS), a flexible smooth term with proper inference (GAM), and an explicit model for correlated residuals (GAMM). [Transformations](transformations.qmd), next, covers the response-side and regressor-side tools available before reaching for any of them — and how to tell which one a given series actually needs.
+The rest of this site works through methods in order of increasing flexibility, and most of them still fit inside the five-part framework above, each changing exactly one slot: a hinge term on the regressor (piecewise regression), a mean shift at an unknown location (changepoint detection), a flexible smooth term with proper inference (GAM), and an explicit model for correlated residuals (GAMM). k-nearest-neighbors and LOESS are the exception, not another instance of the pattern — neither has a systematic component that's linear in any coefficients, so there's no slot in this framework for either one to occupy. They sit outside it entirely, useful as a fully nonparametric baseline precisely because they don't inherit any of a linear model's structure, correctly specified or not. [Transformations](transformations.qmd), next, covers the response-side and regressor-side tools available before reaching for any of them — and how to tell which one a given series actually needs.

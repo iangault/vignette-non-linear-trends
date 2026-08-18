@@ -40,6 +40,8 @@ Total Chloride climbs steadily with no visible bend; Total Zinc scatters around 
 
 For each analyte, `lm(log(result) ~ year_frac)` and `mgcv::gam(log(result) ~ s(year_frac, bs = "tp", k = 20), method = "REML")` are fit on the same data — the same GAM specification used in the [GAM](gam.qmd) chapter, with the same `k = 20` basis capacity, so the comparison isn't handicapped by an artificially small smooth.
 
+Two numbers do the actual comparing. **AIC**, $\mathrm{AIC} = -2\log L + 2p$, trades off fit (the log-likelihood $\log L$) against complexity (the parameter count $p$ — for a GAM, `mgcv` substitutes the smooth term's edf, defined in [GAM](gam.qmd), for $p$) — lower is better, and the extra parameters a GAM's smooth term is allowed to use only help its AIC if they buy enough of a likelihood improvement to outweigh their cost. **Deviance explained**, $1 - D_{\text{resid}}/D_{\text{null}}$, is a GAM's analogue of $R^2$: the share of the null model's deviance (an intercept-only fit) that the fitted model accounts for, comparable directly against `summary(lm)$r.squared` on the same log-scale response.
+
 ```{r}
 #| label: control-model-fits
 fit_models <- function(sub) {
@@ -118,7 +120,15 @@ bptest(fits_zinc$lin)
 shapiro.test(resid(fits_zinc$lin))
 ```
 
-Both linear fits pass both tests: Total Chloride shows no heteroscedasticity ($p = 0.376$) and no non-normality ($p = 0.604$); Total Zinc likewise shows no heteroscedasticity ($p = 0.787$) and no non-normality ($p = 0.170$). Nothing in either fit's residuals argues against treating the linear model as adequate for either analyte.
+Both linear fits pass both tests: Total Chloride shows no heteroscedasticity ($p = 0.376$) and no non-normality ($p = 0.604$); Total Zinc likewise shows no heteroscedasticity ($p = 0.787$) and no non-normality ($p = 0.170$).
+
+```{r}
+#| label: control-acf
+Box.test(resid(fits_chloride$lin), lag = 1, type = "Ljung-Box")
+Box.test(resid(fits_zinc$lin), lag = 1, type = "Ljung-Box")
+```
+
+Both also pass the independence check: Total Chloride ($p = 0.621$) and Total Zinc ($p = 0.479$) both show no evidence of residual autocorrelation. Nothing in either fit's residuals argues against treating the linear model as adequate for either analyte.
 
 ## Interpretation
 

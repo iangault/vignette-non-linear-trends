@@ -51,7 +51,7 @@ ggplot(tn, aes(year_frac, log(result))) +
   nlt_theme
 ```
 
-The log-scale series is not too different from the raw scale in this example, but is done forbetter diagnostic results. 
+The log-scale series is not too different from the raw scale in this example, but is fit on the log scale anyway for better diagnostic results.
 
 ## Estimating the breakpoint
 
@@ -124,6 +124,16 @@ shapiro.test(resid(seg_tn))
 ```
 
 Both tests fail to reject their null: the Breusch-Pagan test ($p = 0.328$) finds no evidence of heteroscedasticity, and the Shapiro-Wilk test ($p = 0.575$) finds no evidence of non-normal residuals. This is also a retroactive check on the log-transform: a failure in either test would have suggested `log(result)` wasn't the right scale to model on.
+
+A third assumption — independence — isn't covered by either test above, and monthly monitoring data has an obvious way to violate it: this month's reading sitting closer to last month's than an independent draw would. Checked directly:
+
+```{r}
+#| label: tn-acf
+acf(resid(seg_tn), main = "Total Nitrogen — residual autocorrelation")
+Box.test(resid(seg_tn), lag = 1, type = "Ljung-Box")
+```
+
+Lag-1 autocorrelation is close to zero, and the Ljung-Box test finds no evidence against independence ($p = 0.731$). Nothing here argues for revisiting the segmented fit's standard errors the way [GAMM](gamm.qmd) has to for Dissolved Oxygen.
 
 ## Interpretation
 

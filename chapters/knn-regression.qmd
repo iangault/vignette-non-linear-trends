@@ -16,7 +16,11 @@ tp_wq <- non_linear_wq |> filter(analyte == "Total Phosphorus")
 
 ## A purely local rule
 
-Total Phosphorus rises and then settles onto a plateau — not the slope break of piecewise regression, not the level shift of changepoint detection, and no natural single knot an analyst would place by eye. k-nearest-neighbors regression sidesteps the question of a functional form entirely: for a new point on `year_frac`, find the $k$ training observations closest to it and predict the average of their responses, $\hat y = \bar y^{(k)}$. There's no linear predictor at all here, not even the feature-engineered kind covered in [The Regression Framework](regression-framework.qmd) — no coefficients are estimated, just a lookup-and-average rule applied at prediction time.
+Total Phosphorus rises and then settles onto a plateau — not the slope break of piecewise regression, not the level shift of changepoint detection, and no natural single knot an analyst would place by eye. k-nearest-neighbors regression sidesteps the question of a functional form entirely: for a query point $x_0$ on `year_frac`, let $N_k(x_0)$ be the set of $k$ training observations closest to it (Euclidean distance on `year_frac`), and predict
+
+$$\hat y(x_0) = \frac{1}{k} \sum_{i \in N_k(x_0)} y_i,$$
+
+the plain average of their responses. There's no linear predictor at all here, not even the feature-engineered kind covered in [The Regression Framework](regression-framework.qmd) — no coefficients are estimated, just a lookup-and-average rule applied at prediction time.
 
 Concentration data is modeled on the log scale throughout this site for the reasons covered in [Transformations](transformations.qmd) — a multiplicative process where variability scales with the mean — and Total Phosphorus is no exception; `log(result)` is used below.
 

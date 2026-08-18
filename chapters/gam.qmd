@@ -19,11 +19,19 @@ cu_wq <- non_linear_wq |> filter(analyte == "Total Copper")
 
 Total Copper doesn't settle into flat-then-sloped segments (piecewise regression), a single level jump (changepoint detection), or a repeating annual shape with a correlated-noise problem (GAMM, next chapter, on Dissolved Oxygen). It moves up, up again into a brief spike, back down, further down below where it started, then partway back up — a shape with no periodic structure and no small set of knots an analyst would confidently place by eye. That's the case a GAM is actually for.
 
-**Still linear, in the sense that matters.** A GAM's linear predictor is $\eta = \beta_0 + f(x)$, where $f$ is a *smooth function* built from a spline basis rather than a single coefficient times $x$ — a weighted sum of many small, fixed basis columns, $f(x) = \sum_k \beta_k b_k(x)$, the same "linear in the parameters" idea covered in [The Regression Framework](regression-framework.qmd) and used there for the piecewise chapter's hinge term. What's different is how much basis-building `mgcv::gam()` does automatically: instead of one or two hand-picked hinge terms, it builds a rich basis (up to `k` candidate knots) and a fitted **smoothing penalty** decides how much of that flexibility survives, shrinking toward a straight line wherever the data doesn't support the extra wiggle.
+**Still linear, in the sense that matters.** A GAM's linear predictor is $\eta = \beta_0 + f(x)$, where $f$ is a *smooth function* built from a spline basis rather than a single coefficient times $x$ — a weighted sum of many small, fixed basis columns, $f(x) = \sum_{m=1}^{k} \beta_m b_m(x)$, the same "linear in the parameters" idea covered in [The Regression Framework](regression-framework.qmd) and used there for the piecewise chapter's hinge term. What's different is how much basis-building `mgcv::gam()` does automatically: instead of one or two hand-picked hinge terms, it builds a rich basis (up to `k` candidate knots) and a fitted **smoothing penalty** decides how much of that flexibility survives, shrinking toward a straight line wherever the data doesn't support the extra wiggle.
+
+**How the penalty works, concretely.** Fitting isn't just least squares on the basis columns — the coefficients $\beta_1, \dots, \beta_k$ are chosen to minimize
+
+$$\sum_{i=1}^n \left(y_i - f(x_i)\right)^2 + \lambda \int f''(x)^2\,dx,$$
+
+a squared-error term traded off against a roughness penalty: $\int f''(x)^2\,dx$ is large when $f$ bends sharply and zero when $f$ is a straight line, since a line has zero second derivative everywhere. $\lambda$ sets the exchange rate between the two — $\lambda \to 0$ lets the fit use as much of the basis's flexibility as it wants, $\lambda \to \infty$ forces $f$ back to a straight line regardless of what the basis could represent. `method = "REML"` below estimates $\lambda$ from the data itself, rather than fixing it or choosing it by eye.
+
+**What edf means.** The effective degrees of freedom (edf) of a fitted smooth is $\mathrm{edf} = \mathrm{tr}(S_\lambda)$, the trace of the smoother matrix $S_\lambda$ that maps the observed $y$'s onto the fitted $\hat f$'s at the fitted $\lambda$. It generalizes "number of parameters" from an ordinary linear term — a straight line has exactly one slope, edf = 1 — to a penalized smooth, where $\lambda$ can land anywhere between edf ≈ 1 (penalized all the way back to a straight line) and edf ≈ `k` (using nearly all of the basis's allowed flexibility). It's the one number, reported alongside every smooth term on this site, that says how much curvature the fit actually kept.
 
 **Semi-parametric, not fully either.** The basis dimension `k` caps how wiggly the fit is *allowed* to get; the fitted penalty decides how much of that allowance actually gets used, based on the data. That's closer to "as flexible as the data supports" than either a fixed parametric form (piecewise regression) or no form at all (k-NN, LOESS).
 
-**Inferential, not just a curve.** The fitted smooth carries an effective degrees of freedom (edf) and a significance test — is this smooth distinguishable from flat at all — the same kind of reportable number a slope or a breakpoint gives elsewhere in this vignette. That's what makes "is this concentration currently rising, falling, or holding" an answerable, testable question below, rather than a read off a noisy plot.
+**Inferential, not just a curve.** The fitted smooth carries an edf and a significance test — is this smooth distinguishable from flat at all — the same kind of reportable number a slope or a breakpoint gives elsewhere in this vignette. That's what makes "is this concentration currently rising, falling, or holding" an answerable, testable question below, rather than a read off a noisy plot.
 
 ## The shape in the record
 
@@ -149,6 +157,30 @@ shapiro.test(resid(fit_cu))
 ```
 
 Both tests fail to reject their null: the Breusch-Pagan test ($p = 0.232$) finds no evidence of heteroscedasticity, and the Shapiro-Wilk test ($p = 0.266$) finds no evidence of non-normal residuals, on the log scale settled on above.
+
+The GAM's own F-test on the smooth term rests on the same independence assumption as any OLS-family test, so it's worth checking directly rather than assuming it away because this fit isn't the seasonal-cycle case [GAMM](gamm.qmd) was built to catch:
+
+```{r}
+#| label: cu-acf
+acf(resid(fit_cu), main = "Total Copper GAM — residual autocorrelation")
+Box.test(resid(fit_cu), lag = 1, type = "Ljung-Box")
+```
+
+Unlike the piecewise and changepoint chapters' clean results, this one isn't clean: lag-1 autocorrelation is a little over 0.3, and the Ljung-Box test rejects independence decisively ($p = 2.3\times10^{-4}$).
+
+```{r}
+#| label: cu-resid-vs-time
+#| message: false
+cu_wq |>
+  mutate(resid = resid(fit_cu)) |>
+  ggplot(aes(year_frac, resid)) +
+  geom_point(alpha = 0.5) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(title = "Total Copper GAM — residuals over time", y = "residual (log scale)") +
+  nlt_theme
+```
+
+Plotted against time, the largest residuals aren't spread evenly across the record — they cluster around the same stretches already flagged as sharp transitions in "The shape in the record" above, while the flatter stretches on either side of them show tight, patternless scatter. That's a different mechanism than GAMM's case: a penalized spline is constrained to be smooth, so wherever the true mean genuinely bends fast — a step, a spike — the fitted curve necessarily lags or overshoots for a few points to either side, producing runs of same-signed residuals right at the transition without any correlated noise process behind them. It's a real limitation worth naming rather than a false alarm, but it's concentrated at the transitions rather than spread through the whole record, which is why the overall significance conclusion ($p < 2\times10^{-16}$, an effect far too large for a handful of locally correlated points to manufacture) still stands. It does mean the confidence band and the derivative-significance call right at each transition edge should be read with a bit more caution than the flat, well-fit stretches between them.
 
 ## Why not just engineer the right OLS features
 
