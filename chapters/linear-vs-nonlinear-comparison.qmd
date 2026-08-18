@@ -3,6 +3,123 @@ title: "Linear vs. Nonlinear Comparison"
 subtitle: "Total Chloride and Total Zinc — control cases"
 ---
 
-Total Chloride follows a genuine, unremarkable straight-line trend; Total Zinc is pure noise with no real trend. Together they check two opposite failure modes: forcing unnecessary flexibility onto a series already well described by a straight line, and letting a flexible model manufacture a trend out of noise. This section compares linear and nonlinear fits on both analytes using AIC and deviance.
+```{r}
+#| label: setup
+#| include: false
+library(dplyr)
+library(ggplot2)
+library(mgcv)
+library(lmtest)
+source("R/utils.R")
+non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_types = FALSE)
+control_wq <- non_linear_wq |> filter(analyte %in% c("Total Chloride", "Total Zinc"))
+```
 
-*Analysis not yet written.*
+## Why this section exists
+
+Every method chapter in this site fits a flexible model to a series that turned out to need one: a hinge, a level shift, a smooth term earning a significant test. None of them show what happens when a flexible model is handed a series that *doesn't* need it. Getting the functional form right isn't just an academic concern — forcing unnecessary flexibility onto a series already well described by a straight line invites a model to report structure that isn't there, and a client or regulator reading a wiggly fitted curve has no way to tell a genuine feature from an artifact of an over-flexible model. This section runs that check directly: a plain linear fit and a GAM, on the same data, for two analytes engineered to be control cases rather than case studies.
+
+**Total Chloride** follows a real, unremarkable straight-line trend across the whole record — the case where a simple linear model is already the right answer, and a nonlinear model earns nothing extra for its added flexibility. **Total Zinc** has no real trend at all, just noise around a flat mean — the case where a flexible model could be tempted to fit that noise as if it were a shape. Concentration data is modeled on the log scale throughout this site, per [Transformations](transformations.qmd); both analytes here follow that convention.
+
+## The shape in the record
+
+```{r}
+#| label: control-raw-series
+#| message: false
+ggplot(control_wq, aes(year_frac, result)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(se = FALSE) +
+  facet_wrap(~analyte, scales = "free_y") +
+  labs(title = "Total Chloride and Total Zinc — raw scale", y = "Concentration") +
+  nlt_theme
+```
+
+Total Chloride climbs steadily with no visible bend; Total Zinc scatters around a flat level with no discernible pattern. Neither shape suggests a break, a plateau, or any structure a straight line wouldn't capture.
+
+## Fitting linear and nonlinear models to each
+
+For each analyte, `lm(log(result) ~ year_frac)` and `mgcv::gam(log(result) ~ s(year_frac, bs = "tp", k = 20), method = "REML")` are fit on the same data — the same GAM specification used in the [GAM](gam.qmd) chapter, with the same `k = 20` basis capacity, so the comparison isn't handicapped by an artificially small smooth.
+
+```{r}
+#| label: control-model-fits
+fit_models <- function(sub) {
+  lin <- lm(log(result) ~ year_frac, data = sub)
+  gam_fit <- gam(log(result) ~ s(year_frac, bs = "tp", k = 20), data = sub, method = "REML")
+  list(lin = lin, gam = gam_fit)
+}
+
+chloride_wq <- control_wq |> filter(analyte == "Total Chloride")
+zinc_wq <- control_wq |> filter(analyte == "Total Zinc")
+
+fits_chloride <- fit_models(chloride_wq)
+fits_zinc <- fit_models(zinc_wq)
+
+comparison_table <- function(fits, label) {
+  s <- summary(fits$gam)
+  data.frame(
+    analyte = label,
+    model = c("Linear (lm)", "GAM"),
+    AIC = c(AIC(fits$lin), AIC(fits$gam)),
+    R2_or_dev_explained = c(summary(fits$lin)$r.squared, s$dev.expl),
+    smooth_edf = c(NA, s$edf),
+    smooth_p_value = c(NA, s$s.table[, 4])
+  )
+}
+
+rbind(
+  comparison_table(fits_chloride, "Total Chloride"),
+  comparison_table(fits_zinc, "Total Zinc")
+)
+```
+
+Both analytes tell the same story: the smooth term's effective degrees of freedom collapses to essentially 1 in both cases (edf ≈ 1.0) — the GAM's own fitted penalty found no curvature worth keeping and shrank the smooth down to a straight line on its own, without being told the answer in advance. AIC is effectively tied between the two models for each analyte (the GAM's slightly higher AIC reflects the small cost of estimating a penalty that ends up buying nothing), and the linear model's $R^2$ matches the GAM's deviance explained almost exactly, because the two fits are, numerically, the same line.
+
+The difference between the two analytes shows up in whether that line means anything. For **Total Chloride**, the smooth term is significant and deviance explained is substantial (`r round(summary(fits_chloride$gam)$dev.expl*100,1)`%) — a real trend, just a straight one. For **Total Zinc**, the smooth term is not statistically distinguishable from flat ($p =$ `r round(summary(fits_zinc$gam)$s.table[,4], 3)`) and deviance explained is negligible (`r round(summary(fits_zinc$gam)$dev.expl*100,1)`%) — there's a line to draw through the noise, same as there would be through any random scatter, but nothing about the data supports treating it as a real trend.
+
+```{r}
+#| label: control-fit-plot
+grid_chloride <- data.frame(year_frac = seq(min(chloride_wq$year_frac), max(chloride_wq$year_frac), length.out = 200))
+grid_zinc <- data.frame(year_frac = seq(min(zinc_wq$year_frac), max(zinc_wq$year_frac), length.out = 200))
+
+build_grid <- function(grid, fits, label) {
+  grid |>
+    mutate(
+      analyte = label,
+      lin_fit = exp(predict(fits$lin, newdata = grid)),
+      gam_fit = exp(predict(fits$gam, newdata = grid))
+    )
+}
+
+fit_grid <- bind_rows(
+  build_grid(grid_chloride, fits_chloride, "Total Chloride"),
+  build_grid(grid_zinc, fits_zinc, "Total Zinc")
+)
+
+ggplot() +
+  geom_point(data = control_wq, aes(year_frac, result), alpha = 0.35, color = "grey40") +
+  geom_line(data = fit_grid, aes(year_frac, lin_fit, color = "Linear"), linewidth = 1) +
+  geom_line(data = fit_grid, aes(year_frac, gam_fit, color = "GAM"), linewidth = 1, linetype = "dashed") +
+  facet_wrap(~analyte, scales = "free_y") +
+  scale_color_manual(values = c(Linear = "steelblue", GAM = "#A85751"), name = NULL) +
+  labs(title = "Total Chloride and Total Zinc — linear vs. GAM fit", y = "Concentration") +
+  nlt_theme +
+  theme(legend.position = "right")
+```
+
+The dashed GAM line sits almost exactly on top of the solid linear line in both panels — visual confirmation of the edf ≈ 1 result above. The GAM was free to bend and chose not to, in both directions: it didn't flatten Total Chloride's real trend, and it didn't manufacture curvature out of Total Zinc's noise.
+
+## Model diagnostics
+
+```{r}
+#| label: control-diagnostics
+bptest(fits_chloride$lin)
+shapiro.test(resid(fits_chloride$lin))
+bptest(fits_zinc$lin)
+shapiro.test(resid(fits_zinc$lin))
+```
+
+Both linear fits pass both tests: Total Chloride shows no heteroscedasticity ($p = 0.376$) and no non-normality ($p = 0.604$); Total Zinc likewise shows no heteroscedasticity ($p = 0.787$) and no non-normality ($p = 0.170$). Nothing in either fit's residuals argues against treating the linear model as adequate for either analyte.
+
+## Interpretation
+
+Neither control case rewards the extra flexibility a GAM offers. On Total Chloride, the GAM's fitted penalty reproduces the linear trend almost exactly, at the cost of a slightly worse AIC for buying flexibility that goes unused — the simpler model is the right one to report, not because nonlinear methods were never tried, but because they were tried and came back with nothing more to say. On Total Zinc, the same result is the more consequential one: a flexible model, free to bend, chose not to, which is the evidence that the flat line isn't hiding a suppressed trend the smoother could have caught. That's the practical value of this comparison for a client or regulator report — model choice should be no more flexible than the data actually supports, and showing the flexible alternative declining to add anything is a more defensible basis for reporting "no trend" or "a simple linear trend" than assuming the simple model from the outset.

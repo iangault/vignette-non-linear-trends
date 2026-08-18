@@ -3,6 +3,108 @@ title: "k-Nearest Neighbors Regression"
 subtitle: "Total Phosphorus — a rise that levels into a plateau"
 ---
 
-Total Phosphorus rises smoothly and then plateaus, a shape no single breakpoint or straight segment describes well. k-nearest-neighbors regression predicts each point as the average of its *k* nearest neighbors in the data — no fitted curve, no coefficients, a purely local-average baseline compared against LOESS on the same data.
+```{r}
+#| label: setup
+#| include: false
+library(dplyr)
+library(ggplot2)
+library(caret)
+source("R/utils.R")
+non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_types = FALSE)
+tp_wq <- non_linear_wq |> filter(analyte == "Total Phosphorus")
+```
 
-*Analysis not yet written.*
+## A purely local rule
+
+Total Phosphorus rises and then settles onto a plateau — not the slope break of piecewise regression, not the level shift of changepoint detection, and no natural single knot an analyst would place by eye. k-nearest-neighbors regression sidesteps the question of a functional form entirely: for a new point on `year_frac`, find the $k$ training observations closest to it and predict the average of their responses, $\hat y = \bar y^{(k)}$. There's no linear predictor at all here, not even the feature-engineered kind covered in [The Regression Framework](regression-framework.qmd) — no coefficients are estimated, just a lookup-and-average rule applied at prediction time.
+
+Concentration data is modeled on the log scale throughout this site for the reasons covered in [Transformations](transformations.qmd) — a multiplicative process where variability scales with the mean — and Total Phosphorus is no exception; `log(result)` is used below.
+
+## The shape in the record
+
+```{r}
+#| label: tp-raw-series
+#| message: false
+ggplot(tp_wq, aes(year_frac, result)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(se = FALSE) +
+  labs(title = "Total Phosphorus — raw scale", y = "Phosphorus (mg/L)") +
+  nlt_theme
+```
+
+An early low, roughly flat stretch, a rise through the middle years, and a plateau at a higher level for the remainder of the record — the shape a logistic curve would produce, though nothing here assumes that form.
+
+## Choosing k: the bias-variance tradeoff
+
+$k$ is the one tuning parameter this method has, and it controls a direct bias-variance tradeoff. A small $k$ averages over only a handful of nearby points, so the fitted curve tracks the training data's noise as much as its signal — low bias, high variance. A large $k$ averages over a wide neighborhood, smoothing away real curvature along with the noise — low variance, high bias. There's no fitted coefficient to inspect here, so the tradeoff has to be shown, not asserted:
+
+```{r}
+#| label: tp-knn-sweep
+#| message: false
+grid <- data.frame(year_frac = seq(min(tp_wq$year_frac), max(tp_wq$year_frac), length.out = 300))
+
+sweep_ks <- c(3, 20, 60)
+sweep_fits <- lapply(sweep_ks, function(k) {
+  m <- knnreg(log(result) ~ year_frac, data = tp_wq, k = k)
+  grid |> mutate(fit = exp(predict(m, newdata = grid)), k = factor(k))
+})
+sweep_df <- bind_rows(sweep_fits)
+
+ggplot() +
+  geom_point(data = tp_wq, aes(year_frac, result), alpha = 0.35, color = "grey40") +
+  geom_line(data = sweep_df, aes(year_frac, fit, color = k), linewidth = 1) +
+  labs(title = "Total Phosphorus — k-NN fit at three values of k", y = "Phosphorus (mg/L)", color = "k") +
+  nlt_theme +
+  theme(legend.position = "right")
+```
+
+At $k = 3$ the curve is jagged, chasing individual points rather than the underlying rise; at $k = 60$ it's smoothed almost flat, blunting the plateau's onset; $k = 20$ sits between the two, tracking the rise without visibly reacting to single points.
+
+Rather than pick a value by eye, $k$ is chosen by 10-fold cross-validation, minimizing mean squared error on the log scale across held-out folds:
+
+```{r}
+#| label: tp-knn-cv
+set.seed(1)
+folds <- createFolds(tp_wq$result, k = 10)
+candidate_ks <- c(3, 5, 10, 15, 20, 30, 45, 60)
+
+cv_mse <- sapply(candidate_ks, function(k) {
+  fold_errs <- sapply(folds, function(idx) {
+    train <- tp_wq[-idx, ]
+    test <- tp_wq[idx, ]
+    m <- knnreg(log(result) ~ year_frac, data = train, k = k)
+    mean((log(test$result) - predict(m, newdata = test))^2)
+  })
+  mean(fold_errs)
+})
+
+data.frame(k = candidate_ks, cv_mse = round(cv_mse, 4))
+```
+
+```{r}
+#| label: tp-knn-final
+best_k <- candidate_ks[which.min(cv_mse)]
+fit_tp <- knnreg(log(result) ~ year_frac, data = tp_wq, k = best_k)
+best_k
+```
+
+Cross-validated error is minimized at $k =$ `r best_k`, consistent with the sweep above: small enough to track the rise-and-plateau shape, large enough that no single observation swings the prediction.
+
+## The fitted curve
+
+```{r}
+#| label: tp-knn-fit-plot
+grid <- grid |> mutate(fit = exp(predict(fit_tp, newdata = grid)))
+
+ggplot() +
+  geom_point(data = tp_wq, aes(year_frac, result), alpha = 0.4, color = "grey40") +
+  geom_line(data = grid, aes(year_frac, fit), color = "steelblue", linewidth = 1) +
+  labs(title = sprintf("Total Phosphorus — k-NN fit (k = %d)", best_k), y = "Phosphorus (mg/L)") +
+  nlt_theme
+```
+
+There's no confidence band here, and none is available: `knnreg()` produces a fitted value at each point, not a coefficient with a standard error. Nothing about this fit supports a significance test, a slope estimate, or a p-value — it's a prediction-oriented baseline, not an inferential model. The cross-validated MSE above (`r round(min(cv_mse), 4)` on the log scale) is the one number this method offers in place of the usual diagnostics, and it answers "how well does this rule predict held-out points," not "is there a real trend here."
+
+## Interpretation
+
+k-NN recovers the rise-and-plateau shape without being told any functional form, using only a neighborhood-averaging rule tuned by cross-validation. That's useful for showing what the record looks like, but it stops there: no coefficient says how fast Phosphorus rose, no interval bounds where the plateau sits, and no test says whether the apparent leveling-off is real or just where the data happens to thin out. The next section fits [LOESS](loess-smoothing.qmd) to the same data — a locally weighted regression in place of k-NN's local average, still without a global functional form, but a step closer to the kind of fit a formal model can be built on.

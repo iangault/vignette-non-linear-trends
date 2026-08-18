@@ -3,6 +3,85 @@ title: "LOESS Smoothing"
 subtitle: "Total Phosphorus — the same rise-then-plateau, a smoother local fit"
 ---
 
-LOESS fits a separate weighted local regression at every point, producing a smoother curve than k-nearest-neighbors' local average, on the same Total Phosphorus data for a direct comparison. Like k-NN, it doesn't produce coefficients or a significance test — its role here is a smooth-curve baseline ahead of the GAM section.
+```{r}
+#| label: setup
+#| include: false
+library(dplyr)
+library(ggplot2)
+library(caret)
+source("R/utils.R")
+non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_types = FALSE)
+tp_wq <- non_linear_wq |> filter(analyte == "Total Phosphorus")
+```
 
-*Analysis not yet written.*
+## A local regression instead of a local average
+
+This is the same Total Phosphorus record used for [k-Nearest Neighbors Regression](knn-regression.qmd) — a rise through the middle years that settles onto a plateau — fit here with LOESS instead, for a direct comparison of two local methods on identical data. Where k-NN predicts each point as the flat average of its $k$ nearest neighbors, LOESS fits a separate *weighted regression* at every point, using only the nearby observations (governed by `span`, the proportion of the data treated as neighbors) and down-weighting points farther from the target as the weights decay with distance. `stats::loess()` is base R — no additional package is required. The response is modeled on the log scale, for the same reasons covered in [Transformations](transformations.qmd).
+
+**`degree` sets the order of each local fit, not the shape of the whole curve.** `degree = 0` is a local weighted average — closer in spirit to k-NN's flat average than to a regression at all. `degree = 1` fits a local straight line at every point; `degree = 2` fits a local parabola. It's easy to misread `degree = 1` as meaning the fitted curve is a single straight line end to end, but that's not what's happening: LOESS fits a *different* local line at every target point, so `degree = 1` still produces a curve that bends over the full record, made up of many local linear pieces stitched together. `lm(y ~ x)` fits one slope for the entire dataset; `loess(y ~ x, degree = 1)` fits many, each valid only in its own neighborhood.
+
+## The shape in the record
+
+```{r}
+#| label: tp-loess-raw
+#| message: false
+ggplot(tp_wq, aes(year_frac, result)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(se = FALSE) +
+  labs(title = "Total Phosphorus — raw scale", y = "Phosphorus (mg/L)") +
+  nlt_theme
+```
+
+Same shape as in the k-NN chapter: a low, roughly flat start, a rise through the middle years, and a plateau at a higher level for the rest of the record.
+
+## Fitting the shape
+
+```{r}
+#| label: tp-loess-span-degree
+grid <- data.frame(year_frac = seq(min(tp_wq$year_frac), max(tp_wq$year_frac), length.out = 300))
+
+span_degree_grid <- expand.grid(span = c(0.3, 0.5, 0.75), degree = c(1, 2))
+resid_sd <- mapply(function(sp, deg) {
+  m <- loess(log(result) ~ year_frac, data = tp_wq, span = sp, degree = deg)
+  sd(resid(m))
+}, span_degree_grid$span, span_degree_grid$degree)
+
+data.frame(span_degree_grid, resid_sd = round(resid_sd, 4))
+```
+
+Residual spread drops as `span` narrows and rises as `degree` increases within a fixed span — both expected, since a narrower neighborhood and a higher local order each add flexibility. Taken to an extreme, though, a narrow span starts fitting individual points rather than the underlying shape, the same overfitting risk k-NN showed at small $k$. `span = 0.5, degree = 1` is used below: local windows wide enough to average over the record's monthly noise, without narrowing so far that the fit reduces to interpolating between points.
+
+```{r}
+#| label: tp-loess-fit
+fit_tp_loess <- loess(log(result) ~ year_frac, data = tp_wq, span = 0.5, degree = 1)
+grid <- grid |> mutate(fit = exp(predict(fit_tp_loess, newdata = grid)))
+```
+
+## Comparing the two local fits
+
+```{r}
+#| label: tp-loess-vs-knn
+knn_fit <- caret::knnreg(log(result) ~ year_frac, data = tp_wq, k = 20)
+grid <- grid |> mutate(knn_fit = exp(predict(knn_fit, newdata = grid)))
+
+compare_df <- grid |>
+  select(year_frac, LOESS = fit, `k-NN` = knn_fit) |>
+  tidyr::pivot_longer(c(LOESS, `k-NN`), names_to = "method", values_to = "fit")
+
+ggplot() +
+  geom_point(data = tp_wq, aes(year_frac, result), alpha = 0.3, color = "grey40") +
+  geom_line(data = compare_df, aes(year_frac, fit, color = method), linewidth = 1) +
+  labs(title = "Total Phosphorus — LOESS vs. k-NN", y = "Phosphorus (mg/L)", color = NULL) +
+  nlt_theme +
+  theme(legend.position = "right")
+```
+
+The two curves track the same rise-and-plateau shape closely, but LOESS's is visibly smoother through the transition — a consequence of fitting a local line rather than a flat local average, so the curve doesn't have to jump between step-like neighborhood means as the window slides along the record.
+
+## No inferential story here either
+
+LOESS doesn't recover what k-NN gave up. There's no global coefficient, no standard error, and no significance test attached to this fit — `loess()` doesn't return an object structured to support one the way `lm()` or `mgcv::gam()` do. This isn't a limitation specific to the implementation; it's a structural consequence of fitting a separate regression at every point rather than a single set of parameters over the whole record. LOESS is a genuinely useful tool for prediction, but it comes at the cost of the inferential interpretability a parametric or semi-parametric model provides. Its role in this progression is the smooth-curve bridge to the next chapter, not an answer to "is this trend statistically real."
+
+## Interpretation
+
+LOESS reproduces the same rise-then-plateau shape as k-NN, more smoothly, and confirms the two local methods agree on where the record actually bends. Neither, though, can say whether the apparent plateau is a real leveling-off or just where the local windows happen to average out — that requires a model with an actual significance test attached. [Generalized Additive Models](gam.qmd), next, keep the same flexible-curve idea but restore that inferential machinery: a fitted smooth term with a p-value, and a confidence band that means something.
