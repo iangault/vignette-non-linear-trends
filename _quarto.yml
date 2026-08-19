@@ -50,6 +50,10 @@ website:
           - text: "9. Linear vs. Nonlinear Comparison"
             href: chapters/linear-vs-nonlinear-comparison.qmd
 
+knitr:
+  opts_chunk:
+    fig.align: center
+
 format:
   html:
     theme: flatly

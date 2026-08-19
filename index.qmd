@@ -112,3 +112,7 @@ ggplot(non_linear_wq |> order_analytes(), aes(date, result)) +
 - **Total Chloride** — a genuine, unremarkable straight-line trend. A control: the case where the simple linear model is already the right answer.
 - **Total Zinc** — pure noise, no real trend. The other control: the guard against a flexible model manufacturing a trend that isn't there.
 - **Total Copper** — step-like and non-monotonic: up, up again into a brief spike, back down, further down, then a partial recovery. GAM: a shape with no periodic or polynomial pattern for a hand-built OLS feature to fall back on.
+
+## References
+
+- UBC Master of Data Science, *DSCI 562: Regression II* — [Lecture 1: Link Functions and Count Regression](https://ubc-mds-2018-19.github.io/DSCI_562_regr-2/notes/lecture1-glm-link-functions-and-count-regression.html), [Lecture 6: Local Regression](https://ubc-mds-2018-19.github.io/DSCI_562_regr-2/notes/lecture6_local_regression.html)

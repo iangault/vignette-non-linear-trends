@@ -6,7 +6,7 @@ The question throughout is inference on the observed record — did this analyte
 
 ## What this vignette covers
 
-- **The regression framework** — the five components any regression model specifies (estimand, random component, link, systematic component, estimation), with ordinary least squares as one instance of that structure, and why "linear" means linear in the parameters rather than straight in x
+- **The regression framework** — the five components any regression model specifies (estimand, random component, link, systematic component, estimation), with ordinary least squares (OLS) as one instance of that structure, and why "linear" means linear in the parameters rather than straight in x
 - **Transformations** — three distinct tools (transforming the response, feature-engineering the regressor, changing the link function) and how to diagnose which one a given series actually needs
 - **Piecewise / segmented linear regression** — one slope becomes two, joined continuously at an estimated breakpoint
 - **Changepoint detection** — locates a shift in mean/level at an unknown point, rather than assuming where a break falls

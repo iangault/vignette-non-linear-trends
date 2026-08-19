@@ -5,42 +5,80 @@ subtitle: "Where ordinary least squares sits, and what each method on this site 
 
 ## A model has five moving parts
 
+In plain terms, every regression model is just a formal way of saying "the response's typical value depends on the regressor, plus some leftover noise around that typical value." Everything below is about pinning down that sentence precisely enough to fit: what "typical value" means, how the noise behaves, what shape the dependence takes, and how the numbers get estimated.
+
+The reason to bother getting each of those five parts right, rather than just eyeballing a curve through the points, is that a correctly specified model is what turns a fitted line into a **defensible statistical claim** — a confidence interval, a p-value, a statement that a trend is real and not noise.
+
+```{r}
+#| label: systematic-vs-random-mock
+#| message: false
+#| echo: false
+library(ggplot2)
+
+set.seed(562)
+mock <- data.frame(x = runif(20, 0, 10))
+mock$y <- 3 + 1.2 * mock$x + rnorm(20, sd = 1.8)
+fit <- lm(y ~ x, data = mock)
+mock$fitted <- fitted(fit)
+
+ggplot(mock, aes(x, y)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, colour = "steelblue", linewidth = 1.4) +
+  geom_segment(aes(xend = x, yend = fitted),
+               linetype = "dashed", colour = "darkred", linewidth = 0.4, alpha = 0.6) +
+  annotate("text", x = 6, y = 5,
+           label = "Systematic\nComponent: E[Y|X]", colour = "steelblue", hjust = 0,
+           fontface = "bold", size = 5) +
+  annotate("text", x = 0.5, y = 12,
+           label = "Random\nComponent (noise)", colour = "darkred", hjust = 0,
+           fontface = "bold", size = 5) +
+  scale_x_continuous(expand = expansion(mult = 0.1)) +
+  scale_y_continuous(expand = expansion(mult = 0.1)) +
+  labs(
+    title = "Systematic vs. random component in a fitted OLS line",
+    x = "Regressor (X)", y = "Response (Y)"
+  ) +
+  theme_minimal()
+```
+
+The fitted line is the systematic component, $E[Y \mid X]$; the vertical gap between a point and the line is the random component for that observation. Getting both right — the shape of the line and the behavior of the scatter around it — is what supports the inference step later.
+
 ### Data Modelling Framework
 
-Let us dig into the general **Data Modelling** stage in OLS regression. Conceptually, the OLS regression model can be expressed as:
+Conceptually, the OLS regression model can be expressed as:
 
 $$
 \mbox{Response} = \mbox{Systematic Component} + \mbox{Random Component}.
-$${#eq-conceptual_model}
+$$ {#eq-conceptual_model}
 
-- The **systematic component** represents the mean of the response **which is conditioned on the regressor values**.
-- The **random component** measures the extent to which the observed value of the response might deviate from its mean and is viewed as **random noise**.
+-   The **systematic component** represents the mean of the response **which is conditioned on the regressor values**.
+-   The **random component** measures the extent to which the observed value of the response might deviate from its mean and is viewed as **random noise**.
 
 For the $i$th observation in our **random sample** or **training data** ($i = 1, \dots, n$), the conceptual model, from @eq-conceptual_model, is mathematically represented as:
 
 $$
 \underbrace{Y_i}_\text{Response}  = \underbrace{\beta_0 + \beta_1 g_1(X_{i, 1}) + \ldots + \beta_k g_k(X_{i,k})}_\text{Systematic Component} + \underbrace{\varepsilon_i.}_\text{Random Component}
-$${#eq-OLS_model}
+$$ {#eq-OLS_model}
 
 Note the following:
 
-- The response $Y_i$ is equal to the sum of $k + 2$ terms on the right-hand side.
-- The systematic component is the sum of:
-    - An **unknown intercept** $\beta_0$ and
-    - $k$ **regressor functions** $g_j(X_{i,j})$ ($j = 1, \dots, k$) multiplied by their respective **unknown regression coefficient** $\beta_j$.
-- $\varepsilon_i$ is the **random noise** for the $i$th observation.
+-   The response $Y_i$ is equal to the sum of $k + 2$ terms on the right-hand side.
+-   The systematic component is the sum of:
+    -   An **unknown intercept** $\beta_0$ and
+    -   $k$ **regressor functions** $g_j(X_{i,j})$ ($j = 1, \dots, k$) multiplied by their respective **unknown regression coefficient** $\beta_j$.
+-   $\varepsilon_i$ is the **random noise** for the $i$th observation.
 
 #### Modelling Assumptions
 
 The model in @eq-OLS_model above for $Y_i$ is more detailed as follows:
 
-- The response $Y_i$ depends on the **linear combination** of the functions $g_j(\cdot)$ of $k$ regressors $X_{i, j}$ of different types (continuous and discrete).
+-   The response $Y_i$ depends on the **linear combination** of the functions $g_j(\cdot)$ of $k$ regressors $X_{i, j}$ of different types (continuous and discrete).
 
-- Each function $g_j(X_{i,j})$ has an associated regression coefficient. These parameters $\beta_{1}, \dots, \beta_{k}$ represent how much the response is expected to increase or decrease when the function $g_j(X_{i,j})$ changes by one unit of the $j$th regressor. An additional parameter, $\beta_0$, represents the mean of the response when all the $k$ functions $g_j(X_{i,j})$ are equal to zero. All these elements represent the systematic component of the model.
+-   Each function $g_j(X_{i,j})$ has an associated regression coefficient. These parameters $\beta_{1}, \dots, \beta_{k}$ represent how much the response is expected to increase or decrease when the function $g_j(X_{i,j})$ changes by one unit of the $j$th regressor. An additional parameter, $\beta_0$, represents the mean of the response when all the $k$ functions $g_j(X_{i,j})$ are equal to zero. All these elements represent the systematic component of the model.
 
-- The term $\varepsilon_i$ is an unobserved random variable and represents the random component. These variables are **usually** assumed to be **normally distributed** with **mean of zero** and a **common variance** $\sigma^2$ (i.e., **homoscedasticity**). Moreover, all $\varepsilon_i$s are assumed to be **independent**.
+-   The term $\varepsilon_i$ is an unobserved random variable and represents the random component. These variables are **usually** assumed to be **normally distributed** with **mean of zero** and a **common variance** $\sigma^2$ (i.e., **homoscedasticity**). Moreover, all $\varepsilon_i$s are assumed to be **independent**.
 
-::: {.callout-tip}
+::: callout-tip
 ## Definition of random component assumptions in OLS
 
 $$
@@ -53,35 +91,43 @@ $$
 $$
 :::
 
-### The five parts
+### The five parts {#the-five-parts}
 
 Fitting a regression model means making five separate choices, whether or not they're stated explicitly:
 
-1. **Estimand** — what aspect of $Y \mid X$ is actually being modeled. Ordinary least squares targets the conditional mean, $E[Y \mid X]$. A model could instead target the median or a quantile; that choice determines everything downstream.
-2. **Random component** — how $Y$ scatters around that estimand. OLS assumes $Y_i \mid X_i \sim N(\mu_i, \sigma^2)$: Gaussian noise, the same variance at every value of $X$.
-3. **Link function** — the function connecting the mean to the linear predictor, $g(\mu_i) = \eta_i$. OLS uses the **identity link**, $g(\mu) = \mu$, which is precisely why OLS doesn't feel like it has a link function at all — it has one, it just does nothing.
-4. **Systematic component** — how the regressors combine into the linear predictor, $\eta_i = \beta_0 + \beta_1 X_{1i} + \beta_2 X_{2i} + \cdots$.
-5. **Estimation** — the numerical values of the $\beta$'s that fit the data. OLS minimizes the sum of squared residuals; under the Gaussian assumption in step 2, that's identical to maximum likelihood.
+1.  **Estimand** — what aspect of $Y \mid X$ is actually being modeled. Ordinary least squares targets the conditional mean, $E[Y \mid X]$. A model could instead target the median or a quantile; that choice determines everything downstream.
+2.  **Random component** — how $Y$ scatters around that estimand. OLS assumes $Y_i \mid X_i \sim N(\mu_i, \sigma^2)$: Gaussian noise, the same variance at every value of $X$.
+3.  **Link function** — the function connecting the mean to the linear predictor, $g(\mu_i) = \eta_i$. OLS uses the **identity link**, $g(\mu) = \mu$, which makes it seem like it doesn't have a link function at all — it has one, it just does nothing.
+4.  **Systematic component** — how the regressors combine into the linear predictor, $\eta_i = \beta_0 + \beta_1 X_{1i} + \beta_2 X_{2i} + \cdots$.
+5.  **Estimation** — the numerical values of the $\beta$'s that fit the data. OLS minimizes the sum of squared residuals; under the Gaussian assumption in step 2, that's identical to maximum likelihood.
 
 ### OLS as one specific setting
 
-Ordinary least squares is one specific setting of all five: conditional mean, Gaussian noise, identity link, a linear-in-the-parameters systematic component, least squares. Every other method on this site changes one of those five slots and keeps the rest:
+Ordinary least squares is one specific setting of all five parts: conditional mean, Gaussian noise, identity link, a linear-in-the-parameters systematic component, least squares. Every other method on this site changes one of those five slots relative to OLS — but the methods aren't siblings that each pick a different slot independently. They **nest**: GLM ⊆ GAM ⊆ GAMM, where each one can do everything the one before it could, plus one more thing.
 
-- A **generalized linear model** changes the link and/or the random component — a log link, Poisson or Gamma noise — while keeping the systematic component linear in $\beta$.
-- A **generalized additive model** ([`gam.qmd`](gam.qmd)) changes the systematic component, from $\beta_0 + \beta_1 X$ to $\beta_0 + f(X)$, a smooth function estimated from the data instead of a single coefficient times $X$ — while keeping the identity link and Gaussian random component.
-- A **generalized additive mixed model** ([`gamm.qmd`](gamm.qmd)) changes neither the mean, the link, nor the systematic component — it changes what "random component" is allowed to mean, letting residuals be correlated with each other instead of requiring independence.
+-   A **generalized linear model** changes the link and/or the random component — a log link, Poisson or Gamma noise — while keeping the systematic component linear in $\beta$. Setting the link to identity and the noise to Gaussian and a GLM *is* OLS.
+-   A **generalized additive model** ([`gam.qmd`](gam.qmd)) keeps everything a GLM has — it can still use a log link, Poisson noise, whatever the data calls for — and additionally lets the systematic component itself be a smooth function, $\beta_0 + f(X)$, estimated from the data, instead of forcing $\beta_0 + \beta_1 X$. Restrict $f(X)$ to a straight line and a GAM *is* a GLM.
+-   A **generalized additive mixed model** ([`gamm.qmd`](gamm.qmd)) keeps everything a GAM has — link, noise family, smooth terms — and additionally lets the random component's independence assumption go, allowing correlated residuals. Drop that correlation structure and a GAMM *is* a GAM.
 
 ### What later chapters change
 
-Framed this way, none of the methods on this site is a wholesale departure from OLS. Each one relaxes exactly one of the five assumptions above, in a specific, nameable way, while leaving the rest of the framework intact.
+Framed this way, none of the methods on this site is a full departure from OLS. Each one relaxes exactly one of the five assumptions above, in a specific, nameable way, while leaving the rest of the framework intact.
 
 ## "Linear" means linear in the coefficients, not straight in $X$
 
-A regression is a **linear model** if the systematic component is a linear combination of terms — linear in the $\beta$'s — regardless of whether those terms are linear functions of the original regressor. `lm(y ~ x + I(x^2))` fits
+A regression is a **linear model** if the systematic component is a linear combination of terms — linear in the $\beta$'s — regardless of whether those terms are linear functions of the original regressor.
+
+For example, `lm(y ~ x + I(x^2))` fits:
 
 $$y_i = \beta_0 + \beta_1 x_i + \beta_2 x_i^2 + \varepsilon_i,$$
 
-which produces a curved fitted line in $x$ while remaining a linear model: the fit is still a linear combination of the columns $\{1, x, x^2\}$, estimated the same way a simple straight line would be. [`piecewise-regression.qmd`](piecewise-regression.qmd) uses the same trick with a hinge term instead of a squared term — $\beta_2 (x_i - c)_+$, where $(x - c)_+ = \max(0, x - c)$ — one more column handed to `lm()`, not a different kind of model. Feature-engineering the regressor bends the fitted curve without ever leaving step 4 of the framework above; it's a different move from transforming the response or changing the link (see [Transformations](transformations.qmd)).
+Where `I()` ("as-is") tells R to evaluate `x^2` as literal arithmetic and use the result as a predictor column, overriding the formula operator's usual special meaning.
+
+This produces a curved fitted line in $x$ while remaining a linear model: the fit is still a linear combination of the columns $\{1, x, x^2\}$, estimated the same way a simple straight line would be.
+
+As another example, [`piecewise-regression.qmd`](piecewise-regression.qmd) uses the same trick with a hinge term instead of a squared term — $\beta_2 (x_i - c)_+$, where $(x - c)_+ = \max(0, x - c)$ is zero for $x \le c$ and equal to $x - c$ for $x > c$ — a column that's flat before the breakpoint $c$ and ramps up linearly after it, letting the slope change at $c$ without a break in the fitted line. It's one more column handed to `lm()`, not a different kind of model.
+
+In addition, feature-engineering the regressor bends the fitted curve without ever leaving step 4 of the framework above (linear combination of $\beta$'s); it's a different move from transforming the response or changing the link, which will be explored more in [Transformations](transformations.qmd).
 
 ## Multiple regressors, and why visualizability breaks down the way it does
 
@@ -91,4 +137,8 @@ A **categorical** regressor doesn't add a dimension the same way a second contin
 
 ## What comes next
 
-The rest of this site works through methods in order of increasing flexibility, and most of them still fit inside the five-part framework above, each changing exactly one slot: a hinge term on the regressor (piecewise regression), a mean shift at an unknown location (changepoint detection), a flexible smooth term with proper inference (GAM), and an explicit model for correlated residuals (GAMM). k-nearest-neighbors and LOESS are the exception, not another instance of the pattern — neither has a systematic component that's linear in any coefficients, so there's no slot in this framework for either one to occupy. They sit outside it entirely, useful as a fully nonparametric baseline precisely because they don't inherit any of a linear model's structure, correctly specified or not. [Transformations](transformations.qmd), next, covers the response-side and regressor-side tools available before reaching for any of them — and how to tell which one a given series actually needs.
+The rest of this site works through methods in order of increasing flexibility, and most of them still fit inside the five-part framework above, each changing exactly one slot: a hinge term on the regressor (**piecewise regression**), a mean shift at an unknown location (**changepoint detection**), a flexible smooth term with proper inference (**GAM**), and an explicit model for correlated residuals (**GAMM**).
+
+**k-nearest-neighbors** and **LOESS** are the exception, not another instance of the pattern — neither has a systematic component that's linear in any coefficients. Instead, they are useful as a fully nonparametric baseline precisely because they don't inherit any of a linear model's structure, correctly specified or not.
+
+[Transformations](transformations.qmd), next, covers the response-side and regressor-side tools available before reaching for any of them — and how to tell which one a given series actually needs.
