@@ -16,7 +16,7 @@ tp_wq <- non_linear_wq |> filter(analyte == "Total Phosphorus")
 
 ## A local regression instead of a local average
 
-This is the same Total Phosphorus record used for [k-Nearest Neighbors Regression](knn-regression.qmd) — a rise through the middle years that settles onto a plateau — fit here with LOESS instead, for a direct comparison of two local methods on identical data. Where k-NN predicts each point as the flat average of its $k$ nearest neighbors, LOESS fits a separate *weighted regression* at every query point $x_0$:
+This is the same Total Phosphorus record used for [k-Nearest Neighbors Regression](knn-regression.qmd) — a rise through the middle years that settles onto a plateau — fit here with **LOESS** instead, for a direct comparison of two local methods on identical data. Where k-NN predicts each point as the flat average of its $k$ nearest neighbors, LOESS fits a separate *weighted regression* at every query point $x_0$:
 
 $$\hat\beta(x_0) = \arg\min_\beta \sum_{i=1}^n w_i(x_0)\left(y_i - x_i^\top \beta\right)^2, \qquad w_i(x_0) = \left(1 - \left|\frac{x_i - x_0}{h}\right|^3\right)^3_+,$$
 
@@ -84,7 +84,7 @@ The two curves track the same rise-and-plateau shape closely, but LOESS's is vis
 
 ## No inferential story here either
 
-LOESS doesn't recover what k-NN gave up. There's no global coefficient, no standard error, and no significance test attached to this fit — `loess()` doesn't return an object structured to support one the way `lm()` or `mgcv::gam()` do. This isn't a limitation specific to the implementation; it's a structural consequence of fitting a separate regression at every point rather than a single set of parameters over the whole record. LOESS is a genuinely useful tool for prediction, but it comes at the cost of the inferential interpretability a parametric or semi-parametric model provides. Its role in this progression is the smooth-curve bridge to the next chapter, not an answer to "is this trend statistically real."
+LOESS doesn't recover what k-NN gave up. There's no global coefficient, no standard error, and no significance test attached to this fit — `loess()` doesn't return an object structured to support one the way `lm()` or `mgcv::gam()` do. This isn't a limitation specific to the implementation; it's a structural consequence of fitting a separate regression at every point rather than a single set of parameters over the whole record. LOESS is a genuinely useful tool for *prediction*, but it comes at the cost of the inferential interpretability a parametric or semi-parametric model provides. Its role in this progression is the smooth-curve bridge to the next chapter, not an answer to "is this trend statistically real."
 
 ## Interpretation
 

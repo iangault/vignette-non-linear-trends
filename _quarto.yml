@@ -14,13 +14,21 @@ project:
     - chapters/linear-vs-nonlinear-comparison.qmd
 
 website:
-  title: "Modelling Beyond a Straight Line"
+  title: "Modelling Beyond a Straight Line: Regression for Environmental Consultants"
   page-navigation: true
+  navbar:
+    right:
+      - icon: github
+        href: https://github.com/iangault/vignette-non-linear-trends
+        aria-label: GitHub repository
+  page-footer:
+    left: "© 2026 Ian Gault"
   sidebar:
     style: docked
     search: true
     contents:
-      - index.qmd
+      - text: "Home"
+        href: index.qmd
       - section: "Framework"
         contents:
           - text: "1. The Regression Framework"
@@ -56,7 +64,14 @@ knitr:
 
 format:
   html:
-    theme: flatly
+    theme:
+      light: flatly
+      dark: darkly
+    css: styles.css
     toc: true
     toc-location: right
     code-fold: false
+    grid:
+      sidebar-width: 300px
+      body-width: 1150px
+      margin-width: 300px

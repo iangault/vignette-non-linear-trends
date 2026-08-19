@@ -15,6 +15,10 @@ if (!file.exists("data/synthetic/non_linear_wq.csv")) {
 non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_types = FALSE)
 ```
 
+## Why I built this
+
+I work in environmental consulting, where a lot of trend analysis still defaults to a straight line through the data because that's what's fast and familiar. Partway through a Master of Data Science, I started running into methods — piecewise regression, changepoint detection, GAMs — that would have changed how I read several records I'd already reported on, if I'd known them going in. This site is my attempt to connect those two sides: write up the methods the way I wish someone had explained them to me before I needed them, grounded in the kind of water-quality data an environmental consultant actually works with day to day.
+
 ## Why nonlinear methods matter here
 
 Environmental data rarely behaves as neatly as the models used to describe it. A straight-line trend is a fine description when a concentration is genuinely rising or falling at a constant rate — but many real records don't look like that: a flat baseline that suddenly starts climbing, a level that jumps once and holds, a rise that levels off into a plateau, a seasonal cycle riding on top of a slower trend. Forcing a straight line onto any of these shapes produces a technically-fitted but practically misleading answer: it can make a plateaued analyte look like it's still climbing, or smear a one-time step change into what reads as a gradual trend.

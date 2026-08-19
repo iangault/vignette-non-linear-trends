@@ -16,7 +16,7 @@ tp_wq <- non_linear_wq |> filter(analyte == "Total Phosphorus")
 
 ## A purely local rule
 
-Total Phosphorus rises and then settles onto a plateau — not the slope break of piecewise regression, not the level shift of changepoint detection, and no natural single knot an analyst would place by eye. k-nearest-neighbors regression sidesteps the question of a functional form entirely: for a query point $x_0$ on `year_frac`, let $N_k(x_0)$ be the set of $k$ training observations closest to it (Euclidean distance on `year_frac`), and predict
+Total Phosphorus rises and then settles onto a plateau — not the slope break of piecewise regression, not the level shift of changepoint detection, and no natural single knot an analyst would place by eye. **k-nearest-neighbors regression** sidesteps the question of a functional form entirely: for a query point $x_0$ on `year_frac`, let $N_k(x_0)$ be the set of $k$ training observations closest to it (Euclidean distance on `year_frac`), and predict
 
 $$\hat y(x_0) = \frac{1}{k} \sum_{i \in N_k(x_0)} y_i,$$
 
@@ -40,7 +40,7 @@ An early low, roughly flat stretch, a rise through the middle years, and a plate
 
 ## Choosing k: the bias-variance tradeoff
 
-$k$ is the one tuning parameter this method has, and it controls a direct bias-variance tradeoff. A small $k$ averages over only a handful of nearby points, so the fitted curve tracks the training data's noise as much as its signal — low bias, high variance. A large $k$ averages over a wide neighborhood, smoothing away real curvature along with the noise — low variance, high bias. There's no fitted coefficient to inspect here, so the tradeoff has to be shown, not asserted:
+$k$ is the one tuning parameter this method has, and it controls a direct bias-variance tradeoff. A small $k$ averages over only a handful of nearby points, so the fitted curve tracks the training data's noise as much as its signal — *low bias, high variance*. A large $k$ averages over a wide neighborhood, smoothing away real curvature along with the noise — *low variance, high bias*. There's no fitted coefficient to inspect here, so the tradeoff has to be shown, not asserted:
 
 ```{r}
 #| label: tp-knn-sweep
@@ -107,7 +107,7 @@ ggplot() +
   nlt_theme
 ```
 
-There's no confidence band here, and none is available: `knnreg()` produces a fitted value at each point, not a coefficient with a standard error. Nothing about this fit supports a significance test, a slope estimate, or a p-value — it's a prediction-oriented baseline, not an inferential model. The cross-validated MSE above (`r round(min(cv_mse), 4)` on the log scale) is the one number this method offers in place of the usual diagnostics, and it answers "how well does this rule predict held-out points," not "is there a real trend here."
+There's no confidence band here, and none is available: `knnreg()` produces a fitted value at each point, not a coefficient with a standard error. Nothing about this fit supports a significance test, a slope estimate, or a p-value — it's a **prediction-oriented baseline**, not an inferential model. The cross-validated MSE above (`r round(min(cv_mse), 4)` on the log scale) is the one number this method offers in place of the usual diagnostics, and it answers "how well does this rule predict held-out points," not "is there a real trend here."
 
 ## Interpretation
 

@@ -55,7 +55,7 @@ The log-scale series is not too different from the raw scale in this example, bu
 
 ## Estimating the breakpoint
 
-The breakpoint was not assumed: it was estimated from the data using `segmented::segmented()`, seeded from an initial visual read of the series. That function starts from a baseline model with a single global slope and no breakpoint, then runs an iterative local search — Muggeo's algorithm: re-estimate the breakpoint given the current slopes, re-estimate the slopes given the new breakpoint, repeat to convergence — around the starting value. It is a local search, not an exhaustive one, so the starting value needs to be in the right neighborhood rather than exact; here, roughly year 6 into the twelve-year record, read off the plot above.
+The breakpoint was not assumed: it was estimated from the data using `segmented::segmented()`, seeded from an initial visual read of the series. That function starts from a baseline model with a single global slope and no breakpoint, then runs an iterative local search — **Muggeo's algorithm**: re-estimate the breakpoint given the current slopes, re-estimate the slopes given the new breakpoint, repeat to convergence — around the starting value. It is a local search, not an exhaustive one, so the starting value needs to be in the right neighborhood rather than exact; here, roughly year 6 into the twelve-year record, read off the plot above.
 
 ```{r}
 #| label: tn-segmented-fit
@@ -82,7 +82,7 @@ confint(seg_tn)
 slope(seg_tn)
 ```
 
-The breakpoint is estimated at `year_frac` ≈ 5.9 (95% CI 5.18–6.61) — roughly 5.9 years into the twelve-year record. Before the break, there is no detectable trend over the first six years. After the break, the slope is clearly positive (95% CI 0.120–0.160, nowhere near zero); back-transformed, $(\exp(0.140) - 1) \times 100\% \approx 15\%$ per year.
+The breakpoint is estimated at `year_frac` ≈ 5.9 (95% CI 5.18–6.61) — roughly 5.9 years into the twelve-year record. Before the break, there is *no detectable trend* over the first six years. After the break, the slope is *clearly positive* (95% CI 0.120–0.160, nowhere near zero); back-transformed, $(\exp(0.140) - 1) \times 100\% \approx 15\%$ per year.
 
 `slope()`'s output reports a $t$-value but no p-value, for the same reason as the `NA` above — the reference distribution for that statistic isn't exact once the breakpoint is estimated rather than fixed. The confidence interval carries the same caveat but is what the package leads with, rather than a p-value that would look more precise than the estimation actually supports. It doesn't change the reading: the interval excludes zero for the post-break slope and includes it for the pre-break slope, the same conclusion a p-value would give.
 

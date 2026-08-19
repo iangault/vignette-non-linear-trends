@@ -53,7 +53,7 @@ Flat, then a step up, with no visible slope change on either side of the jump.
 
 ## Is there a break at all
 
-Before locating anything, it's worth testing whether a break is there at all, rather than assuming one and going straight to where. The `supF` test scans every candidate split point and asks whether the best of them fits meaningfully better than a single flat mean across the whole record.
+Before locating anything, it's worth testing whether a break is there at all, rather than assuming one and going straight to where. The **`supF` test** scans every candidate split point and asks whether the best of them fits meaningfully better than a single flat mean across the whole record.
 
 ```{r}
 #| label: cond-fstats
@@ -76,7 +76,7 @@ summary(bp_mean)
 summary(bp_slope)
 ```
 
-Both forms select the same single breakpoint at observation 87, and both agree it's the best choice of break count — BIC turns up sharply from 0 to 1 break and creeps back up after. The forms disagree on whether that break should carry a slope: at one break, the flat-mean model's BIC (-397.3) is lower than the slope-and-intercept model's (-387.6). Adding two slope parameters costs more in complexity than it recovers in fit, which is the data-driven version of what the raw plot already suggested — this is a level shift, not a change in trend. The flat-mean model, `bp_mean`, is carried forward.
+Both forms select the same single breakpoint at observation 87, and both agree it's the best choice of break count — BIC turns up sharply from 0 to 1 break and creeps back up after. The forms disagree on whether that break should carry a slope: at one break, the flat-mean model's BIC (-397.3) is lower than the slope-and-intercept model's (-387.6). Adding two slope parameters costs more in complexity than it recovers in fit, which is the data-driven version of what the raw plot already suggested — this is a *level shift*, not a change in trend. The flat-mean model, `bp_mean`, is carried forward.
 
 ## Results
 

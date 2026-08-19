@@ -1,0 +1,13 @@
+/* Sidebar navigation: */
+.sidebar-navigation .sidebar-item-text {
+  font-size: 1rem;
+}
+
+.sidebar-item-section > .sidebar-item-container > .sidebar-item-text {
+  font-weight: bold;
+}
+
+/* "On this page" TOC: match left sidebar's text size */
+#TOC .nav-link {
+  font-size: 1rem;
+}
