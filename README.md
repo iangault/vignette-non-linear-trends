@@ -1,12 +1,12 @@
 # Modelling Beyond a Straight Line
 
-A companion analysis on linear and monotonic trend detection (slope estimation, Mann-Kendall) covers the cases where a straight line or a monotonic rank test is the right tool. This site picks up where that leaves off: analytes whose trajectory over time isn't well described by a straight line — a slope break, a step change, a rise-then-plateau, or a seasonal cycle.
+Making sense of a trend in environmental chemistry data means picking the statistical approach that matches how the series actually behaves, not defaulting to one method regardless of shape. A [companion analysis](https://github.com/iangault/vignette-temporal-trends) covers linear and monotonic trend detection — slope estimation, Mann-Kendall — for analytes where a straight line or a monotonic rank test is the right tool. This site picks up where that leaves off, covering analytes whose trajectory over time isn't well described by a straight line: a slope break, a step change, a rise-then-plateau, or a seasonal cycle.
 
-The question throughout is inference on the observed record — did this analyte change, and how — rather than forecasting. k-nearest-neighbors, LOESS, GAM, and GAMM in particular extrapolate poorly past the fitted range, so projecting beyond the observed period is out of scope.
+The question throughout is inference on the observed record — did this analyte change, and by how much — rather than forecasting. Techniques such as k-nearest-neighbors, LOESS, GAM, and GAMM in particular extrapolate poorly past the fitted range, so projecting beyond the observed period is out of scope, and will be done in another vignette. 
 
-## What this covers
+## What this vignette covers
 
-- **The regression framework** — the estimand/random-component/link/systematic-component/estimation breakdown OLS is one instance of, and why "linear" means linear in the parameters rather than straight in x
+- **The regression framework** — the five components any regression model specifies (estimand, random component, link, systematic component, estimation), with ordinary least squares as one instance of that structure, and why "linear" means linear in the parameters rather than straight in x
 - **Transformations** — three distinct tools (transforming the response, feature-engineering the regressor, changing the link function) and how to diagnose which one a given series actually needs
 - **Piecewise / segmented linear regression** — one slope becomes two, joined continuously at an estimated breakpoint
 - **Changepoint detection** — locates a shift in mean/level at an unknown point, rather than assuming where a break falls
