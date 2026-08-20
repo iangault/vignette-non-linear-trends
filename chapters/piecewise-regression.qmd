@@ -31,18 +31,15 @@ A hinge function is feature engineering on the regressor, not a link function �
 
 ### Why `log(result)`
 
-Concentration data is fit on the log scale throughout this site, for the multiplicative-process reasons and diagnostic payoff covered in [Transformations](transformations.qmd) — including the back-transformation, $(\exp(\hat\beta) - 1) \times 100\%$, used for the post-break rate reported below.
+Concentration data is fit on the log scale throughout this site: it matches the multiplicative-process story concentration data tends to follow, and it corrects the variance-growing-with-the-mean residual pattern (a distributional problem, in the Breusch-Pagan/Shapiro-Wilk sense) that fitting the raw scale directly would leave behind — both covered in [Transformations](transformations.qmd).
+
+A consequence: the hinge-term coefficient $\hat\beta$ comes out of the model in log-units per year, not concentration units, so it isn't itself a usable rate. Back-transforming it, $(\exp(\hat\beta) - 1) \times 100\%$, converts that log-scale slope into a constant percentage rate of change — the number actually reported for the post-break segment below.
 
 ## The shape in the record
 
 ```{r}
 #| label: tn-raw-series
 #| message: false
-ggplot(tn, aes(year_frac, result)) +
-  geom_point(alpha = 0.5) +
-  geom_smooth(se = FALSE) +
-  labs(title = "Total Nitrogen — raw scale") +
-  nlt_theme
 
 ggplot(tn, aes(year_frac, log(result))) +
   geom_point(alpha = 0.5) +
@@ -51,11 +48,11 @@ ggplot(tn, aes(year_frac, log(result))) +
   nlt_theme
 ```
 
-The log-scale series is not too different from the raw scale in this example, but is fit on the log scale anyway for better diagnostic results.
-
 ## Estimating the breakpoint
 
-The breakpoint was not assumed: it was estimated from the data using `segmented::segmented()`, seeded from an initial visual read of the series. That function starts from a baseline model with a single global slope and no breakpoint, then runs an iterative local search — **Muggeo's algorithm**: re-estimate the breakpoint given the current slopes, re-estimate the slopes given the new breakpoint, repeat to convergence — around the starting value. It is a local search, not an exhaustive one, so the starting value needs to be in the right neighborhood rather than exact; here, roughly year 6 into the twelve-year record, read off the plot above.
+Although the breakpoint is known from the syntheic data, it was not assumed to be known in our analysis: it was estimated from the data using `segmented::segmented()`, seeded from an initial visual read of the series.
+
+That function starts from a baseline model with a single global slope and no breakpoint, then runs an iterative local search — **Muggeo's algorithm**: re-estimate the breakpoint given the current slopes, re-estimate the slopes given the new breakpoint, repeat to convergence — around the starting value. It is a local search, not an exhaustive one, so the starting value needs to be in the right neighborhood rather than exact; here, roughly year 6 (`psu = 6`) into the twelve-year record, read off the plot above.
 
 ```{r}
 #| label: tn-segmented-fit
@@ -70,7 +67,9 @@ seg_tn <- segmented(lm_tn, seg.Z = ~year_frac, psi = 6)
 summary(seg_tn)
 ```
 
-The coefficient table above reports `Pr(>|t|)` as `NA` for the change-in-slope term, `U1.year_frac`. That's expected rather than missing: the standard $t$-test reference distribution assumes a fixed design matrix, and here the breakpoint the design depends on was itself estimated from the same data. `confint()` and `slope()` below are `segmented`'s treatment of this — inference on the breakpoint and on each segment's slope that accounts for the estimated breakpoint.
+The coefficient table above reports `Pr(>|t|)` as `NA` for the change-in-slope term, `U1.year_frac`. That's expected rather than missing. A standard $t$-test on a regression coefficient assumes the design matrix — the columns of regressor values `lm()` is fed — is fixed, known in advance, not something estimated from the same data the coefficient is fit on. Here it isn't fixed: `U1.year_frac`'s column is $(x_i - \hat c)_+$, built from the *estimated* breakpoint $\hat c$, so the regressor a reader would need held fixed to trust the usual $t$-distribution was itself derived from this dataset's outcomes.
+
+That breaks the assumption the reference distribution relies on, so `segmented` reports `NA` rather than a number that would overstate precision. `confint()` and `slope()` below are the package's alternative — inference on the breakpoint and on each segment's slope that accounts for $\hat c$ being **estimated** rather than given.
 
 ```{r}
 #| label: tn-confint
@@ -82,7 +81,7 @@ confint(seg_tn)
 slope(seg_tn)
 ```
 
-The breakpoint is estimated at `year_frac` ≈ 5.9 (95% CI 5.18–6.61) — roughly 5.9 years into the twelve-year record. Before the break, there is *no detectable trend* over the first six years. After the break, the slope is *clearly positive* (95% CI 0.120–0.160, nowhere near zero); back-transformed, $(\exp(0.140) - 1) \times 100\% \approx 15\%$ per year.
+The breakpoint is estimated at `year_frac` ≈ 5.9 (95% CI 5.18–6.61) — roughly 5.9 years into the twelve-year record. Before the break, there is *no detectable trend* over the first six years. After the break, the slope is *clearly positive* (95% CI 0.120–0.160, i.e., excluding zero); back-transformed, $(\exp(0.140) - 1) \times 100\% \approx 15\%$ per year.
 
 `slope()`'s output reports a $t$-value but no p-value, for the same reason as the `NA` above — the reference distribution for that statistic isn't exact once the breakpoint is estimated rather than fixed. The confidence interval carries the same caveat but is what the package leads with, rather than a p-value that would look more precise than the estimation actually supports. It doesn't change the reading: the interval excludes zero for the post-break slope and includes it for the pre-break slope, the same conclusion a p-value would give.
 
@@ -102,7 +101,7 @@ ggplot(tn, aes(year_frac, log(result))) +
   geom_vline(xintercept = seg_tn$psi[, "Est."], linetype = "dashed") +
   annotate(
     "label",
-    x = seg_tn$psi[, "Est."], y = max(log(tn$result)),
+    x = seg_tn$psi[, "Est."] + 0.2, y = max(log(tn$result)),
     label = slope2_label, hjust = 0, vjust = 1, size = 3.2
   ) +
   labs(title = "Total Nitrogen — continuous piecewise fit (log scale)") +
@@ -123,15 +122,19 @@ bptest(seg_tn)
 shapiro.test(resid(seg_tn))
 ```
 
-Both tests fail to reject their null: the Breusch-Pagan test ($p = 0.328$) finds no evidence of heteroscedasticity, and the Shapiro-Wilk test ($p = 0.575$) finds no evidence of non-normal residuals. This is also a retroactive check on the log-transform: a failure in either test would have suggested `log(result)` wasn't the right scale to model on.
+Both tests fail to reject their null: the Breusch-Pagan test ($p = 0.328$) finds no evidence of **heteroscedasticity**, and the Shapiro-Wilk test ($p = 0.575$) finds no evidence of **non-normal residuals**. This is also a retroactive check on the log-transform: a failure in either test would have suggested `log(result)` wasn't the right scale to model on.
 
-A third assumption — independence — isn't covered by either test above, and monthly monitoring data has an obvious way to violate it: this month's reading sitting closer to last month's than an independent draw would. Checked directly:
+A third assumption — **independence** — isn't covered by either test above, and monthly monitoring data has an obvious way to violate it: this month's reading sitting closer to last month's than an independent draw would. Checked directly:
 
 ```{r}
 #| label: tn-acf
 acf(resid(seg_tn), main = "Total Nitrogen — residual autocorrelation")
 Box.test(resid(seg_tn), lag = 1, type = "Ljung-Box")
 ```
+
+**Autocorrelation** at lag $k$ is the correlation between each residual and the residual $k$ observations earlier, $\hat e_t$ vs. $\hat e_{t-k}$; lag-1 is that correlation one month back. A value near zero means this month's residual carries no information about last month's — consecutive readings aren't tracking each other beyond what the fitted trend already explains.
+
+The **Ljung-Box test** makes that formal: $H_0$ is that the residuals are independent (no autocorrelation at the lags tested), assessed by pooling the squared autocorrelations across those lags into a single statistic — a low p-value means at least one of them is too large to be noise.
 
 Lag-1 autocorrelation is close to zero, and the Ljung-Box test finds no evidence against independence ($p = 0.731$). Nothing here argues for revisiting the segmented fit's standard errors the way [GAMM](gamm.qmd) has to for Dissolved Oxygen.
 
@@ -141,4 +144,4 @@ Total Nitrogen was flat for roughly the first six years of the record and then b
 
 ## Extending this analysis
 
-Two extensions would matter more on a real record than they do here. `segmented()` was seeded with a single breakpoint because one was visible on the raw plot, but it isn't limited to that — `psi = c(...)` with more than one starting value, or a formal test like `davies.test()` for how many breaks the data actually supports, would be the right move if there were reason to suspect a second shift rather than assuming the one found here is the only one. And this fit fully attributes Total Nitrogen's rise to time alone; a real trend analysis would typically check whether that rise tracks a hydrologic covariate instead — streamflow or precipitation, regressed out before testing for a residual trend — since a wet-weather-driven rise and a genuine loading increase call for different conclusions, and single-covariate time trends like this one can't distinguish them.
+This fit fully attributes Total Nitrogen's rise to time alone; a real trend analysis would typically check whether that rise tracks a hydrologic covariate instead — streamflow or precipitation, regressed out before testing for a residual trend — since a wet-weather-driven rise and a genuine loading increase call for different conclusions, and single-covariate time trends like this one can't distinguish them.
