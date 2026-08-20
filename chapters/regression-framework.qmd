@@ -9,6 +9,8 @@ In plain terms, every regression model is just a formal way of saying "the respo
 
 The reason to bother getting each of those five parts right, rather than just eyeballing a curve through the points, is that a correctly specified model is what turns a fitted line into a **defensible statistical claim** — a confidence interval, a p-value, a statement that a trend is real and not noise.
 
+The figure below is a simple linear fit, `lm(y ~ x)`, i.e. $y_i = \beta_0 + \beta_1 x_i + \varepsilon_i$:
+
 ```{r}
 #| label: systematic-vs-random-mock
 #| message: false
@@ -19,7 +21,16 @@ set.seed(562)
 mock <- data.frame(x = runif(20, 0, 10))
 mock$y <- 3 + 1.2 * mock$x + rnorm(20, sd = 1.8)
 fit <- lm(y ~ x, data = mock)
-mock$fitted <- fitted(fit)
+mock$fitted <- predict(fit) # predicted y-hat at each observed x
+
+slope_est <- coef(fit)["x"] # point estimate of the slope
+slope_ci <- confint(fit)["x", ] # 95% CI for the slope
+slope_p <- summary(fit)$coefficients["x", "Pr(>|t|)"] # p-value on the slope
+fit_label <- sprintf(
+  "slope = %.2f\n95%% CI [%.2f, %.2f]\np %s",
+  slope_est, slope_ci[1], slope_ci[2],
+  ifelse(slope_p < 0.001, "< 0.001", sprintf("= %.3f", slope_p))
+)
 
 ggplot(mock, aes(x, y)) +
   geom_point() +
@@ -32,6 +43,9 @@ ggplot(mock, aes(x, y)) +
   annotate("text", x = 0.5, y = 12,
            label = "Random\nComponent (noise)", colour = "darkred", hjust = 0,
            fontface = "bold", size = 5) +
+  annotate("label", x = 6.5, y = 2,
+           label = fit_label, colour = "black", hjust = 0,
+           fontface = "plain", size = 3.2) +
   scale_x_continuous(expand = expansion(mult = 0.1)) +
   scale_y_continuous(expand = expansion(mult = 0.1)) +
   labs(
@@ -134,6 +148,12 @@ In addition, feature-engineering the regressor bends the fitted curve without ev
 A single continuous regressor gives a fit that's a line or curve in two dimensions — fully visualizable. Two continuous regressors give a fit that's a surface in three dimensions — still visualizable, if harder to draw by hand. Three or more continuous regressors give a fit with no direct picture at all; it's still "linear in the $\beta$'s," it just can't be drawn.
 
 A **categorical** regressor doesn't add a dimension the same way a second continuous regressor does. It doesn't turn a 2D fit into a 3D one — it produces a family of lines within the same 2D picture, one per category, either parallel (an additive model) or free to diverge (an interaction model). This project only ever has one regressor — time — so that distinction is never exercised in the case studies here; it matters for reading models elsewhere, such as the year-by-monitoring-area trend models in the sibling `vignette-temporal-trends` project, where "area" is exactly this kind of categorical regressor.
+
+## A different estimand: ProUCL's UCLs vs. this site's trend models
+
+EPA's ProUCL software is the standard tool for computing environmental decision statistics — Upper Confidence Limits, Upper Tolerance Limits, background threshold values, exposure point concentrations — and worth placing against the five-part framework above, since it targets a different estimand than every method on this site. ProUCL's core statistics summarize a single, time-collapsed sample into one population parameter (a bound on a fixed mean or percentile), not a conditional mean $E[Y \mid X]$ estimated as a function of a regressor. That mismatch in estimand — step 1 of the five parts — is why ProUCL's well-known Gamma-vs-lognormal distribution choice for those statistics has no direct analog here: it answers "what is the population mean," not "how does the mean change with $X$."
+
+Where ProUCL does share this site's estimand is its separate Trend Analysis module, which fits OLS as a function of time and pairs it with the nonparametric Mann-Kendall and Theil-Sen tests as a cross-check — the same conditional-mean target, the same parametric/nonparametric pairing used in this site's case studies and worked through directly in the companion `vignette-temporal-trends` project. [Transformations](transformations.qmd) covers this distinction, and where ProUCL's transformation-bias caution does and doesn't apply, in more depth.
 
 ## What comes next
 
