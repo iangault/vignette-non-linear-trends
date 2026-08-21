@@ -29,7 +29,7 @@ This site opens with two foundational chapters: a general regression framework f
 
 The chapters that follow are organized by *who decides the curve's shape*, not just by how flexible each method is. [Piecewise regression](chapters/piecewise-regression.qmd) and [changepoint detection](chapters/changepoint-detection.qmd) still let the analyst pick where a break is and what kind it is, fitting coefficients around that choice.
 
-[k-Nearest neighbors](chapters/knn-regression.qmd) and [LOESS](chapters/loess-smoothing.qmd) hand that decision to the data instead — they diagnose the record's shape with no assumed form, and if that shape turns out to match a known family, the natural next step is to commit to that family directly for the inference a nonparametric fit can't provide.
+[k-Nearest neighbors](chapters/knn-regression.qmd) and [LOESS](chapters/loess-smoothing.qmd) hand that decision to the data instead — they diagnose the record's shape with no assumed form, and if that shape turns out to match a known family, the natural next step is to commit to that family directly for the inference a nonparametric fit can't provide ([Post-Diagnosis: Committing to a Parametric Form](chapters/parametric-commitment.qmd)).
 
 [GAM](chapters/gam.qmd) covers the case where no such family is available at all, so the flexibility has to live in the model itself, controlled by a fitted penalty rather than an assumed shape; [GAMM](chapters/gamm.qmd) then checks whether that model's significance test can be trusted once residuals are correlated.
 
@@ -77,7 +77,7 @@ Model choice is a tradeoff along three axes:
 The methods on this site sit on a spectrum from parametric to nonparametric, and the spectrum tracks who is deciding the functional form:
 
 - **Parametric** (linear, piecewise) — the analyst picks a small, fixed number of parameters and a specific form (a slope, a hinge). Highly interpretable and cheap to estimate, but correct only if the true shape matches the assumed form.
-- **Nonparametric, used diagnostically** (k-nearest-neighbors, LOESS) — no fixed functional form; the fit adapts to local structure so the analyst can see the shape before committing to one. Needs more data to estimate as reliably as a correctly-specified parametric model, and doesn't by itself reduce to a handful of reportable numbers — but if the revealed shape matches a known family, fitting that family directly (as [LOESS](chapters/loess-smoothing.qmd) does at its close, with a logistic curve) recovers the reportable numbers a nonparametric fit can't give.
+- **Nonparametric, used diagnostically** (k-nearest-neighbors, LOESS) — no fixed functional form; the fit adapts to local structure so the analyst can see the shape before committing to one. Needs more data to estimate as reliably as a correctly-specified parametric model, and doesn't by itself reduce to a handful of reportable numbers — but if the revealed shape matches a known family, fitting that family directly (as [Post-Diagnosis: Committing to a Parametric Form](chapters/parametric-commitment.qmd) does next, with a logistic curve) recovers the reportable numbers a nonparametric fit can't give.
 - **Semi-parametric, used when no family fits** (GAM) — smooth basis functions like LOESS, but with a fitted penalty controlling how much wiggle is allowed, plus proper inferential machinery LOESS doesn't provide. This is the fallback for shapes — like Total Copper's step-and-spike pattern — that don't resolve into any recognizable parametric family.
 
 ### Nonparametric definitions
@@ -100,7 +100,7 @@ The default reflex, faced with any time series, is to fit a straight line throug
 
 | What you're trying to find out | Purpose | Definition | Start here | What you get |
 |---|---|---|---|---|
-| I just want to see the shape of the record before committing to any model form | Exploratory | Visualizing local structure with no fitted coefficients | [k-Nearest Neighbors](chapters/knn-regression.qmd) / [LOESS](chapters/loess-smoothing.qmd) | Prediction only, structurally — no coefficient or p-value comes out of either one, but a shape that resolves into a known family (here, logistic) can be fit directly afterward to recover both |
+| I just want to see the shape of the record before committing to any model form | Exploratory | Visualizing local structure with no fitted coefficients | [k-Nearest Neighbors](chapters/knn-regression.qmd) / [LOESS](chapters/loess-smoothing.qmd) | Prediction only, structurally — no coefficient or p-value comes out of either one, but a shape that resolves into a known family (here, logistic — see [Post-Diagnosis](chapters/parametric-commitment.qmd)) can be fit directly afterward to recover both |
 | Is there a real trend at all, or would a flexible model just be fitting noise? | Diagnostic / triage | A general first check, not tied to one shape | [Linear vs. Nonlinear Comparison](chapters/linear-vs-nonlinear-comparison.qmd) | An inference answer: tested against "no added complexity is justified" |
 | A permit change or effluent release may have shifted the slope — how do I quantify a break I can already see? | Confirmatory | Quantifying a break already visible in the record | [Piecewise / Segmented Regression](chapters/piecewise-regression.qmd) | Two slopes and a breakpoint location, each with a confidence interval |
 | There may have been a spill that jumped the level to something new, and I don't know when | Forensic | Locating an unknown event from the data alone | [Changepoint Detection](chapters/changepoint-detection.qmd) | A break location found by search, with a confidence interval and a significance test for whether a break exists at all |
@@ -129,7 +129,7 @@ ggplot(non_linear_wq |> order_analytes(), aes(date, result)) +
 
 - **Total Nitrogen** — flat, then a genuine slope break. Piecewise/segmented regression: two slopes, one knot, no discontinuity.
 - **Specific Conductance** — a level jump at an unknown location. Changepoint detection: the same "something shifted" question as Total Nitrogen, but without being told where.
-- **Total Phosphorus** — a rise that levels into a plateau. Used twice — k-nearest-neighbors and LOESS, on the same data, for a direct side-by-side — and then fit directly as a logistic curve once both nonparametric passes agree on the shape.
+- **Total Phosphorus** — a rise that levels into a plateau. Used twice — k-nearest-neighbors and LOESS, on the same data, for a direct side-by-side — and then fit directly as a logistic curve in [Post-Diagnosis: Committing to a Parametric Form](chapters/parametric-commitment.qmd) once both nonparametric passes agree on the shape.
 - **Dissolved Oxygen** — a seasonal cycle riding on a longer-term trend, with residuals correlated month to month. GAMM: whether the trend's significance survives once that correlation is modeled explicitly, rather than assumed away.
 - **Total Chloride** — a genuine, unremarkable straight-line trend. A control: the case where the simple linear model is already the right answer.
 - **Total Zinc** — pure noise, no real trend. The other control: the guard against a flexible model manufacturing a trend that isn't there.

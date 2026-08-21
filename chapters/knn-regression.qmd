@@ -81,7 +81,7 @@ That makes this chapter, and [LOESS](loess-smoothing.qmd) after it, a **diagnost
 **Nonparametric** is the word for that: no functional form is assigned up front, so the fit is genuinely useful for *prediction* — reading off a plausible value at any point in the record — but supports no inference at all, since there's no coefficient to attach a standard error or a p-value to.
 
 That diagnostic pass then forks in one of two directions once the shape is clear:
--   **If it resolves into a recognizable family**, it can be handed off to a parametric curve directly and the inferential machinery recovered in one step; that's the move [LOESS](loess-smoothing.qmd) closes on, fitting Total Phosphorus's rise-and-plateau as a logistic growth curve and comparing it back against the k-NN and LOESS fits that found the shape in the first place.
+-   **If it resolves into a recognizable family**, it can be handed off to a parametric curve directly and the inferential machinery recovered in one step; that's the move [Post-Diagnosis: Committing to a Parametric Form](parametric-commitment.qmd) makes, fitting Total Phosphorus's rise-and-plateau as a logistic growth curve and comparing it back against the k-NN and LOESS fits that found the shape in the first place.
 -  **If it doesn't resolve into anything recognizable** — Total Copper's step-and-spike pattern, covered in [GAM](gam.qmd), is the case where it doesn't — the flexibility has to stay in the model itself instead of being handed off to a fixed curve.
 
 Concentration data is modeled on the log scale throughout this site for the reasons covered in [Transformations](transformations.qmd) — a multiplicative process where variability scales with the mean — and Total Phosphorus is no exception; `log(result)` is used below.
@@ -196,7 +196,7 @@ k-NN recovers the rise-and-plateau shape using only a neighborhood-averaging rul
 
 The next chapter fits [LOESS](loess-smoothing.qmd) to the same data with a different local-averaging mechanic — a weighted local regression in place of a flat neighborhood average.
 
-The two methods aren't independent in a strong sense, since both are smoothing the same observations; where their curves agree, what that mainly rules out is the shape being an artifact of k-NN's particular averaging rule rather than a real feature of the record. That's necessary but not sufficient to commit to a parametric curve: the further judgment call — whether the corroborated shape actually resembles a *recognizable* family like logistic growth, rather than resolving into nothing identifiable — is made separately in the next chapter.
+The two methods aren't independent in a strong sense, since both are smoothing the same observations; where their curves agree, what that mainly rules out is the shape being an artifact of k-NN's particular averaging rule rather than a real feature of the record. That's necessary but not sufficient to commit to a parametric curve: the further judgment call — whether the corroborated shape actually resembles a *recognizable* family like logistic growth, rather than resolving into nothing identifiable — is made separately in [Post-Diagnosis: Committing to a Parametric Form](parametric-commitment.qmd), two chapters ahead.
 
 ## Extending this analysis
 
