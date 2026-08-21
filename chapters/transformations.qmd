@@ -18,7 +18,7 @@ if (!file.exists("data/synthetic/non_linear_wq.csv")) {
 non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_types = FALSE)
 ```
 
-Before reaching for one of the heavier models later on this site — piecewise regression, changepoint detection, GAMs — a series deserves a simpler question: is it really nonlinear, or is it a straight line on the wrong scale? A simpler model that fits is generally the better model — fewer parameters to estimate, easier to explain, more likely to generalize beyond the data it was fit on. This chapter is that correction step.
+Before reaching for one of the heavier models later on this site — [piecewise regression](piecewise-regression.qmd), [changepoint detection](changepoint-detection.qmd), [GAMs](gam.qmd) — a series deserves a simpler question: is it really nonlinear, or is it a straight line on the wrong scale? A simpler model that fits is generally the better model — fewer parameters to estimate, easier to explain, more likely to generalize beyond the data it was fit on. This chapter is that correction step.
 
 By **correction** I means a targeted change to how the straight-line model is set up, not a switch to a different method — one that lets an ordinary linear fit describe a shape it couldn't handle as given.
 
@@ -95,7 +95,7 @@ p_raw + p_log +
   plot_annotation(title = "Mock series, 25%/year growth — a curve that logging straightens")
 ```
 
-On the raw scale the fitted line overshoots the middle of the record and undershoots both ends — a signature of forcing a straight line through what's actually an accelerating curve. On the log scale the same line runs through the data cleanly: this is the case Step 1 is checking `log(result)` for. 
+On the raw scale the fitted line overshoots the middle of the record and undershoots both ends — a signature of forcing a straight line through what's actually an accelerating curve. On the log scale the same line runs through the data cleanly: this is the case Step 1 is checking `log(result)` for.
 
 ### Step 2 — fit the straight line anyway, and read the residuals, not the raw data
 
@@ -188,7 +188,7 @@ A **GLM** is specified by two separate pieces, and it's the pairing of the two t
 -   **Family / variance function** — how the variance relates to the mean, $\mathrm{Var}(Y\mid X) = \phi\, V(\mu)$. Here $\phi$ is the **dispersion parameter** — a single constant, estimated from the data, that scales the variance up or down without changing its shape — and $V(\mu)$ is the family-specific function of the mean that this table sets out. Family/variance-function is a separate choice from the link, and it's what actually determines whether the noise is additive or multiplicative.
 
 | Family | Variance function $V(\mu)$ | Noise behavior |
-|---|---|---|
+|------------------------|------------------------|------------------------|
 | Gaussian | $V(\mu) = 1$ (constant) | Additive — spread stays the same size regardless of the mean level |
 | Gamma | $V(\mu) = \mu^2$ | Multiplicative — spread scales with the square of the mean |
 

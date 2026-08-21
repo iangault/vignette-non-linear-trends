@@ -70,6 +70,8 @@ format:
     css: styles.css
     toc: true
     toc-location: right
+    number-sections: true
+    number-depth: 3
     code-fold: false
     grid:
       sidebar-width: 300px

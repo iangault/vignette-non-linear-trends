@@ -17,13 +17,21 @@ cond <- non_linear_wq |> filter(analyte == "Specific Conductance")
 
 ## What changepoint detection is
 
-Piecewise regression (previous chapter) assumes a slope on at least one side of the knot and asks how much it changes. Specific Conductance doesn't fit that setup: it holds at one level, then jumps to another, with no slope — flat — on either side. Testing for a slope change would find nothing, because there isn't one; the thing that changed is the mean itself.
+[Piecewise regression](piecewise-regression.qmd) (previous chapter) assumes a slope on at least one side of the knot and asks how much it changes. Specific Conductance, explored here, doesn't fit that setup: it holds at one level, then jumps to another, with no slope (i.e., flat) on either side. Testing for a change in slope like with piecewise regression would find nothing because there isn't one; what changed is the **mean** itself.
 
-That's the piecewise-constant case from the previous chapter's three-stage progression — each segment gets its own flat mean, no slope term at all — with one difference: there the knot was known and given as a `cut()` point, here it isn't. Changepoint detection is what that stage becomes once the knot's location has to be found rather than assumed.
+That's the **piecewise-constant** case from [Piecewise Regression](piecewise-regression.qmd)'s three-stage progression: each segment gets its own flat mean, no slope term on either side. **Changepoint detection** fits that same piecewise-constant model, but treats the *knot's location as unknown* and *estimates it* from the data, rather than fixing it in advance the way that chapter's progression assumed.
 
-**Why a segment's mean counts as an OLS fit.** `lm(y ~ 1)` on a set of points estimates one coefficient, the intercept, by minimizing the sum of squared residuals $\sum (y_i - \hat\beta_0)^2$. Differentiate with respect to $\hat\beta_0$, set it to zero, and the minimizer is $\hat\beta_0 = \bar y$ — the sample mean. So "each segment's mean is fit by OLS" isn't a loose analogy: an intercept-only regression on a subset of points and the arithmetic mean of that subset are the same number, arrived at by the same minimization, just described two different ways. `lm(log(result) ~ period)` in the Results section below does the same thing with one more coefficient — a shared baseline plus an offset for the second segment — still fit by minimizing squared residuals, which is why it's still legitimate to call this a regression rather than a two-sample test dressed up as one.
+The `strucchange` package provides that search. Given a formula and a series, it tests whether a break exists at all, locates it if so, and reports a confidence interval on where — three tools that will be explored through this chapter (`Fstats()`/`sctest()`, `breakpoints()`, and `confint()`).
 
-**Stated as a model.** For a single break at position $\tau$ in the observation sequence, the flat-mean version of this is
+### Why a segment's mean counts as an OLS fit
+
+In R's formula notation, the `1` on the right-hand side of `y ~ 1` stands for the intercept term alone — no regressor, just $y_i = \beta_0 + \varepsilon_i$. Fit that model, `lm(y ~ 1)`, on a set of points and it estimates the one coefficient, $\hat\beta_0$, by minimizing the sum of squared residuals $\sum (y_i - \hat\beta_0)^2$.
+
+Differentiate with respect to $\hat\beta_0$, set it to zero, and the minimizer is $\hat\beta_0 = \bar y$ — the sample mean. An intercept-only regression on a subset of points and the arithmetic mean of that subset are the same number, arrived at by the same minimization, just described two different ways — so each segment's mean is legitimately an OLS fit, not an approximation to one. `lm(log(result) ~ period)` in the Results section below does the same thing with one more coefficient — a shared baseline plus an offset for the second segment — still fit by minimizing squared residuals, which is why it's still legitimate to call this a regression rather than a two-sample test dressed up as one.
+
+### Stated as a model
+
+For a single break at position $\tau$ in the observation sequence, the flat-mean version of this is
 
 $$y_i = \mu_1 \, \mathbb{1}(i \le \tau) + \mu_2 \, \mathbb{1}(i > \tau) + \varepsilon_i,$$
 
@@ -31,11 +39,15 @@ two segment means and an indicator for which segment each observation falls in �
 
 $$\hat\tau = \arg\min_{\tau} \; \mathrm{RSS}(\tau), \qquad \mathrm{RSS}(\tau) = \sum_{i \le \tau} (y_i - \bar y_{\le \tau})^2 + \sum_{i > \tau} (y_i - \bar y_{> \tau})^2,$$
 
-the split point whose two segment means leave the smallest total squared residual, out of every admissible split. What `strucchange::breakpoints()` adds on top of that is doing this search automatically: it fits the OLS regression at every admissible location (via the dynamic-programming algorithm of Bai and Perron, 2003) and returns whichever minimizes $\mathrm{RSS}(\tau)$, rather than requiring a location — or even a starting guess near one, as `segmented()` does — to be supplied up front.
+$\mathrm{RSS}(\tau)$ is the total squared residual left over once each segment is fit to its own mean — the same quantity OLS always minimizes, just evaluated separately on either side of a candidate split $\tau$.
 
-**If a slope had been present on either side instead, this would look different.** An intercept-only fit assumes a flat mean within each segment; if the data actually trended up or down within a segment, that flat line wouldn't track it, and the leftover trend would typically show up as a violation in the diagnostics below (autocorrelated or trending residuals) or as one segment's fit visibly missing the data on one side. `breakpoints()` doesn't require assuming the answer either way — it accepts any regression formula, so `breakpoints(log(result) ~ year_frac)` fits a non-continuous piecewise-*linear* model instead, a slope and intercept per segment, with the knot still found by search. The "Locating it" section below runs both and lets BIC decide, rather than assuming a flat mean is right: if slopes actually mattered here, the slope-and-intercept form would win, and the write-up would report two rates the way the piecewise chapter does, instead of one level jump.
+$\hat\tau$ is whichever split leaves the smallest such total, out of every admissible split. `strucchange::breakpoints()`, used below to locate the break in Specific Conductance's record, automates that search: it fits the OLS regression at every admissible location (via the dynamic-programming algorithm of Bai and Perron, 2003) and returns whichever minimizes $\mathrm{RSS}(\tau)$.
 
-**The point of doing any of this.** The output this analysis exists to produce is the same shape of answer as the piecewise chapter's — is there a real break, where is it, and how big is it — with a formal test behind each piece rather than an eyeballed read: a significance test for whether a break exists at all (`sctest()` below), a location with a confidence interval, and a percentage change in level with its own p-value, the same "did conductance step up, when, and by how much" a client or regulator would ask about a suspected operational change. The situation it's built for is a suspected step change with an unrecorded date — an operational change, a new discharge starting, a permit-limit revision, a lab or method switch — where there's reason to think something shifted but no on-record date to seed a local search with. `segmented()` needs a plausible starting guess close to the true knot to converge correctly; an exhaustive search over every candidate split doesn't, which makes it the better first-pass tool for an undocumented shift, or for screening many series at once without eyeballing each one first.
+### The point of doing any of this
+
+This analysis answers the same question a client or regulator would ask about a suspected operational change: did conductance step up, and by how much, and when? What **changepoint detection** adds over an eyeballed read is a formal test behind each part of that answer — a significance test for whether a break exists at all (`sctest()` below), a location with a confidence interval, and a percentage change in level with its own p-value.
+
+The situation this method is built for is a suspected step change with an unrecorded date — an operational change, a new discharge starting, a permit-limit revision, a lab or method switch — where there's reason to think something shifted but no on-record date to seed a local search with. `segmented()`, from the [piecewise regression chapter](piecewise-regression.qmd), needs a plausible starting guess close to the true knot to converge correctly; `breakpoints()`'s exhaustive search doesn't need one, which makes it the better first-pass tool for an undocumented shift, or for screening many series at once without eyeballing each one first.
 
 ## The shape in the record
 
@@ -53,7 +65,7 @@ Flat, then a step up, with no visible slope change on either side of the jump.
 
 ## Is there a break at all
 
-Before locating anything, it's worth testing whether a break is there at all, rather than assuming one and going straight to where. The **`supF` test** scans every candidate split point and asks whether the best of them fits meaningfully better than a single flat mean across the whole record.
+Before locating anything, it's worth testing whether a break exists at all, rather than assuming one and going straight to where it is. The **`supF` test** scans every candidate split point and asks whether the best of them fits meaningfully better than a single flat mean across the whole record.
 
 ```{r}
 #| label: cond-fstats
@@ -63,9 +75,21 @@ sctest(fs, type = "supF")
 
 The test rejects the no-break null decisively ($p < 2.2 \times 10^{-16}$): some split in the record explains the data far better than treating it as one constant mean throughout.
 
-## Locating it, and choosing the right form
+## Locating it, and choosing the right model form
 
-`breakpoints()` fits the optimal partition for a given number of breaks, and BIC across increasing break counts picks how many to keep. Run against two candidate forms — a flat mean per segment, and a slope-and-intercept per segment — to check whether the added flexibility of a piecewise-*linear* fit is actually earning its keep here.
+Two things need to be uncovered: how many breaks the record has, and whether each segment should be modelled as a flat mean or as its own slope. `breakpoints()` fits the optimal partition for a given number of breaks; BIC is used twice below to make both choices — once across increasing break counts, and once between the two segment forms.
+
+### Flat mean or sloped segments
+
+An **intercept-only** fit, `bp_mean` below (`breakpoints(log(result) ~ 1)`), assumes a **flat mean** within each segment. If the data actually trended up or down within a segment, that flat line wouldn't track it.
+
+That assumption belongs to the formula, not to `breakpoints()` itself — the function accepts any regression formula, so it doesn't force flat segments over sloped ones or the reverse. Handed `~ year_frac` instead, it fits `bp_slope` (`breakpoints(log(result) ~ year_frac)`), a non-continuous piecewise-*linear* model with its own slope and intercept per segment, the knot still found by search.
+
+Trying both and letting BIC pick between them, below, is how the choice gets made without assuming it upfront.
+
+### Comparing model forms with BIC
+
+**BIC** scores a fitted model by its goodness of fit minus a penalty for each added parameter, so it's the standard way to compare two models with different numbers of parameters without the more flexible one automatically winning just for having more of them; the lower-BIC model is preferred. If slopes actually mattered here, `bp_slope`'s better fit would outweigh its extra-parameter penalty and win on BIC, and the write-up would report two rates the way [Piecewise Regression](piecewise-regression.qmd) does, instead of one level jump.
 
 ```{r}
 #| label: cond-breakpoints
@@ -76,9 +100,13 @@ summary(bp_mean)
 summary(bp_slope)
 ```
 
-Both forms select the same single breakpoint at observation 87, and both agree it's the best choice of break count — BIC turns up sharply from 0 to 1 break and creeps back up after. The forms disagree on whether that break should carry a slope: at one break, the flat-mean model's BIC (-397.3) is lower than the slope-and-intercept model's (-387.6). Adding two slope parameters costs more in complexity than it recovers in fit, which is the data-driven version of what the raw plot already suggested — this is a *level shift*, not a change in trend. The flat-mean model, `bp_mean`, is carried forward.
+`bp_mean` and `bp_slope` select the same single breakpoint at observation 87, and both agree it's the best choice of break count. They disagree on whether that break should carry a slope: at one break, `bp_mean`'s BIC (-397.3) is lower than `bp_slope`'s (-387.6). Adding two slope parameters costs more in complexity than it recovers in fit, which is the data-driven version of what the raw plot already suggested — this is a *level shift*, not a change in trend.
+
+Therefore, based on the evaluation of the model results, `bp_mean` is carried forward.
 
 ## Results
+
+### Where the break falls
 
 ```{r}
 #| label: cond-confint
@@ -90,19 +118,42 @@ cond$year_frac[ci$confint[, c("2.5 %", "breakpoints", "97.5 %")]]
 
 The breakpoint falls at observation 87, `year_frac` ≈ 7.16 (95% CI 7.08–7.25) — a little over seven years into the twelve-year record. `strucchange`'s convention is that the reported observation is the last one belonging to the *first* segment, so the split is applied as strictly-after that index below.
 
+### Size of the jump
+
+`bp_mean` already fits a mean per segment, but its coefficients are on the log scale and don't come with a ready percent-change figure. Refitting the same intercept-only split as an explicit two-level factor makes that conversion straightforward: exponentiate each segment's mean, then take the percent difference between them.
+
 ```{r}
 #| label: cond-segment-means
+# strictly after brk_idx, matching strucchange's "last obs of first segment" convention
 period <- factor(seq_along(cond$year_frac) > brk_idx, labels = c("before", "after"))
 fit <- lm(log(result) ~ period, data = cond)
 summary(fit)
+```
 
+R codes `period` against its first level, `before`, so `(Intercept)` is the mean of `log(result)` in the *before* segment (5.70), and `periodafter` is the difference the *after* segment adds to it (0.344). Both are on the log scale and in units of log(result), which is why they don't read as a plain before/after comparison yet.
+
+The intercept's p-value isn't of interest: it tests whether the before-segment mean is zero, a null with no substantive meaning here (`log(result) = 0` would mean the raw analyte equals 1, an arbitrary reference point, not "no effect"). `periodafter`'s p-value is the one that matters — it tests whether the after segment differs from the before segment at all, which is the claim this section is making, and it's highly significant ($p < 2\times10^{-16}$).
+
+### Back-transforming the estimates
+
+`fit` established that the two segments differ —and by how much —on the log scale, but a client or regulator wants the answer in the analyte's own units: a level and a percent change, not a log-scale coefficient. Getting there takes two steps: recover each segment's mean in raw units, then convert the difference between them to a percentage.
+
+```{r}
+#| label: cond-segment-pct-jump
+# same two numbers as fit's coefficients (5.70, 5.70 + 0.344), computed directly as group means
 means <- tapply(log(cond$result), period, mean)
-exp(means)
-pct_jump <- (exp(diff(means)) - 1) * 100
+exp(means) # undoes the log — segment means back in the analyte's raw units
+pct_jump <- (exp(diff(means)) - 1) * 100 # exp() of the log-scale difference gives a ratio; -1 converts it to a percent
 pct_jump
 ```
 
-The mean level rises from about 299 to about 422 (units of the raw analyte), a jump of roughly 41%, and the coefficient on `periodafter` is far from zero ($p < 2\times10^{-16}$).
+`means` holds the same two numbers `fit` already estimated — 5.70 for *before*, 6.04 (5.70 + 0.344) for *after* — computed here as plain group averages of `log(result)` rather than read off the model's coefficients, so there's no need to track which coefficient is the intercept and which is the offset.
+
+`exp(means)` returns the two segment means in the analyte's raw units: about 299 before, about 422 after. These are geometric means — the back-transform of an average taken on the log scale — not arithmetic means of the raw values, which is the correct summary here since `bp_mean` and `fit` were both fit on `log(result)`.
+
+`exp(diff(means))` instead exponentiates the 0.344 log-scale *difference* between the two means, converting it to a ratio between segments rather than to either mean individually; subtracting 1 turns that ratio into a percent change — roughly a 41% jump.
+
+### Visualizing the fit
 
 ```{r}
 #| label: cond-fitted-plot
@@ -118,9 +169,9 @@ ggplot(cond, aes(year_frac, log(result))) +
   geom_vline(xintercept = brk_year, linetype = "dashed") +
   annotate(
     "label",
-    x = brk_year, y = max(log(cond$result)),
-    label = sprintf("break = %.2f yr, jump = %.1f%%", brk_year, pct_jump),
-    hjust = 0, vjust = 1, size = 3.2
+    x = brk_year + 0.2, y = max(log(cond$result)),
+    label = sprintf("Break = %.2f yr, Jump = %.1f%%", brk_year, pct_jump),
+    hjust = 0, vjust = 1, size = 3.6
   ) +
   labs(title = "Specific Conductance — mean-shift fit (log scale)") +
   nlt_theme
@@ -129,6 +180,8 @@ ggplot(cond, aes(year_frac, log(result))) +
 ## Model diagnostics
 
 The two-segment fit is still an OLS regression, so the same assumptions apply: homoscedasticity and normally distributed residuals (see [Transformations](transformations.qmd)).
+
+### Homoscedasticity and normality
 
 ```{r}
 #| label: cond-bptest
@@ -142,7 +195,7 @@ shapiro.test(resid(fit))
 
 Both tests fail to reject their null: the Breusch-Pagan test ($p = 0.286$) finds no evidence of heteroscedasticity, and the Shapiro-Wilk test ($p = 0.889$) finds no evidence of non-normal residuals.
 
-Neither test checks independence, and monthly data has an obvious way to fail it:
+### Independence
 
 ```{r}
 #| label: cond-acf
@@ -150,11 +203,15 @@ acf(resid(fit), main = "Specific Conductance — residual autocorrelation")
 Box.test(resid(fit), lag = 1, type = "Ljung-Box")
 ```
 
-Lag-1 autocorrelation is close to zero and the Ljung-Box test finds no evidence against independence ($p = 0.368$). All three assumptions hold, supporting the fit as a defensible basis for the interpretation below.
+Lag-1 autocorrelation is close to zero and the Ljung-Box test finds no evidence against independence ($p = 0.368$).
+
+All three assumptions hold, supporting the fit as a defensible basis for the interpretation below.
 
 ## Interpretation
 
-Specific Conductance held at a stable level for the first seven-plus years of the record, then stepped up to a new, equally stable level, with the shift located — not assumed — at `year_frac` ≈ 7.16 (95% CI 7.08–7.25). Unlike the piecewise-regression case, no slope was fit or needed on either side of the break: comparing a flat-mean model against a slope-and-intercept one at the same breakpoint showed the added slope terms cost more in model complexity than they recovered in fit, confirming this is a level shift rather than a change in trend. The jump itself is large and precisely estimated — the mean level rises by roughly 41%, from about 299 to about 422 — and the diagnostics support treating the two-segment fit as a defensible basis for that reading.
+Specific Conductance held at a stable level for the first seven-plus years of the record, then stepped up to a new, equally stable level, with the shift located at `year_frac` ≈ 7.16 (95% CI 7.08–7.25).
+
+Unlike the piecewise-regression case, no slope was fit or needed on either side of the break: comparing a flat-mean model against a slope-and-intercept model at the same breakpoint showed that the added slope terms cost more in model complexity than they gained in fit, confirming this is a level shift rather than a change in trend. The jump itself is large and precisely estimated — the mean level rises by roughly 41%, from about 299 to about 422 — and the diagnostics support treating the two-segment fit as a defensible basis for that reading.
 
 ## Extending this analysis
 

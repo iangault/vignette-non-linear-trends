@@ -18,7 +18,11 @@ do_wq <- non_linear_wq |> filter(analyte == "Dissolved Oxygen")
 
 ## What changes between a GAM and a GAMM
 
+### Why the GAM's F-test assumes independence
+
 A GAM's significance test on a smooth term — the F-test behind an edf and a p-value — is built on the same assumption ordinary least squares makes: the residuals are **independent** draws. Nothing about fitting `s(year_frac)` and `s(month)` checks that assumption, and monthly water-quality data routinely violates it — this month's reading tends to sit closer to last month's than an independent draw would, for reasons the model's mean structure hasn't captured (slow-moving hydrology, persistence in whatever's driving oxygen demand). If that correlation is there and unmodeled, the standard errors on a smooth term come out too small, edf can come out inflated, and "the trend is significant" can mean "the trend, plus some of the correlated noise the model mistook for it."
+
+### What a GAMM adds: an AR(1) correlation structure
 
 A generalized additive **mixed** model keeps the exact same additive-smooth structure — the same `s(year_frac) + s(month)`, the same basis functions, the same idea of a fitted penalty deciding how much wiggle survives — and adds one thing: an explicit model for how the *residuals* are correlated, rather than assuming they aren't. `mgcv::gamm()` fits this by handing the smooth-term machinery to `nlme::lme()` underneath, which accepts a `correlation` argument — here, `corAR1()`, an **AR(1) structure** where the correlation between any two residuals decays geometrically with how far apart in time they are:
 
@@ -66,6 +70,8 @@ acf(resid(fit_gam), main = "Residual autocorrelation, naive GAM")
 
 ## Refitting with an explicit correlation structure
 
+### Fitting the AR(1)-corrected model
+
 ```{r}
 #| label: do-gamm-fit
 fit_gamm <- gamm(log(result) ~ s(year_frac, bs = "tp", k = 10) + s(month, bs = "cc", k = 12),
@@ -73,6 +79,8 @@ fit_gamm <- gamm(log(result) ~ s(year_frac, bs = "tp", k = 10) + s(month, bs = "
                   correlation = corAR1(form = ~1))
 summary(fit_gamm$gam)
 ```
+
+### Confirming the correlation structure is earning its keep
 
 ```{r}
 #| label: do-gamm-phi
@@ -87,6 +95,8 @@ AIC(fit_gamm0$lme, fit_gamm$lme)
 The estimated correlation is $\hat\phi \approx$ `r round(phi, 2)`, and the AR(1) model's AIC is decisively lower than the no-correlation version's — the correlation structure is earning its keep, not just adding a parameter for its own sake.
 
 Once it's in the model, `s(year_frac)`'s edf drops back to 1.00: a straight line. The wiggle the naive fit found on the trend term evaporates once the residual correlation is given somewhere else to go. The smooth term is still significant ($p = 8.1\times10^{-6}$) — there's a real long-term decline here — but it's a simple, constant-rate decline, not the more complex-looking trajectory the naive GAM implied.
+
+### Corrected rate per year
 
 ```{r}
 #| label: do-gamm-rate
