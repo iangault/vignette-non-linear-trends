@@ -9,6 +9,7 @@ subtitle: "Total Phosphorus — the same rise-then-plateau, a smoother local fit
 library(dplyr)
 library(ggplot2)
 library(caret)
+library(lmtest)
 source("R/utils.R")
 non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_types = FALSE)
 tp_wq <- non_linear_wq |> filter(analyte == "Total Phosphorus")
@@ -84,8 +85,65 @@ The two curves track the same rise-and-plateau shape closely, but LOESS's is vis
 
 ## Why LOESS doesn't support a significance test
 
-Fitting a separate regression at every point, rather than one set of parameters over the whole record, has a real cost: there's no global coefficient, no standard error, and no significance test attached to this fit. `loess()` doesn't return an object structured to support one the way `lm()` or `mgcv::gam()` do, and that's a structural consequence of the method, not a gap in the implementation. LOESS is a genuinely useful tool for *prediction*, at the cost of the inferential interpretability a parametric or semi-parametric model provides. Its role in this progression is to serve as the smooth-curve bridge to the next chapter, which restores that inferential machinery.
+Fitting a separate regression at every point, rather than one set of parameters over the whole record, has a real cost: there's no global coefficient, no standard error, and no significance test attached to this fit. `loess()` doesn't return an object structured to support one the way `lm()` or `mgcv::gam()` do, and that's a structural consequence of the method, not a gap in the implementation. LOESS is a genuinely useful tool for *prediction*, at the cost of the inferential interpretability a parametric or semi-parametric model provides. Its role in this progression is to establish the shape clearly enough that, if a recognizable family fits, the section below can commit to it and recover that inferential machinery directly.
+
+## Committing to the logistic form
+
+Both local methods agree on the same shape: a rise through the middle years settling onto a plateau. That agreement is itself useful — it's what justifies moving past a purely local fit, which by construction can't provide the significance test above, and asking whether a specific parametric family describes this shape instead. A rise-then-plateau is exactly what a **logistic growth curve** produces:
+
+$$y(t) = \frac{\mathrm{Asym}}{1 + \exp\left(\frac{\mathrm{xmid} - t}{\mathrm{scal}}\right)},$$
+
+where $\mathrm{Asym}$ is the plateau level, $\mathrm{xmid}$ is the inflection point (the year at which the rise is steepest), and $\mathrm{scal}$ sets how fast the curve transitions between its floor and its plateau. Unlike k-NN or LOESS, this is a genuine parametric commitment: it assumes the record really does follow this specific shape, in exchange for three interpretable, testable parameters instead of a lookup-and-average or a locally weighted line.
+
+This fit is deliberately made on the raw concentration scale rather than the log scale used elsewhere on this page: the plateau parameter `Asym` is directly interpretable in mg/L this way, at the cost of the constant-variance assumption the log transform was adopted to satisfy — which is exactly what the diagnostics below check.
+
+```{r}
+#| label: tp-logistic-fit
+fit_logistic <- nls(result ~ SSlogis(year_frac, Asym, xmid, scal), data = tp_wq)
+summary(fit_logistic)
+```
+
+`SSlogis()` is base R's self-starting logistic model — it picks its own starting values for `Asym`, `xmid`, and `scal` from the data, rather than requiring them guessed by hand.
+
+### Checking the fit is appropriate here
+
+A parametric commitment like this one only pays off if its own assumptions hold, so it gets the same scrutiny as any other fitted model on this site:
+
+```{r}
+#| label: tp-logistic-diagnostics
+bptest(lm(resid(fit_logistic) ~ fitted(fit_logistic)))
+shapiro.test(resid(fit_logistic))
+```
+
+### The fitted curve against k-NN and LOESS
+
+```{r}
+#| label: tp-logistic-plot
+grid <- grid |> mutate(logistic_fit = predict(fit_logistic, newdata = grid))
+
+compare_all_df <- grid |>
+  select(year_frac, LOESS = fit, `k-NN` = knn_fit, Logistic = logistic_fit) |>
+  tidyr::pivot_longer(c(LOESS, `k-NN`, Logistic), names_to = "method", values_to = "fit")
+
+ggplot() +
+  geom_point(data = tp_wq, aes(year_frac, result), alpha = 0.3, color = "grey40") +
+  geom_line(data = compare_all_df, aes(year_frac, fit, color = method), linewidth = 1) +
+  labs(title = "Total Phosphorus — logistic fit against LOESS and k-NN", y = "Phosphorus (mg/L)", color = NULL) +
+  nlt_theme +
+  theme(legend.position = "right")
+```
+
+### What the logistic fit recovers
+
+```{r}
+#| label: tp-logistic-coef
+logistic_coef <- coef(fit_logistic)
+logistic_ci <- confint(fit_logistic)
+logistic_ci
+```
+
+Phosphorus plateaus at an estimated `r round(logistic_coef[["Asym"]], 3)` mg/L (95% CI `r round(logistic_ci["Asym", "2.5%"], 3)`–`r round(logistic_ci["Asym", "97.5%"], 3)`), reached around `year_frac` ≈ `r round(logistic_coef[["xmid"]], 1)` (95% CI `r round(logistic_ci["xmid", "2.5%"], 2)`–`r round(logistic_ci["xmid", "97.5%"], 2)`) — roughly five years into the twelve-year record — with a transition scale (`scal`) of `r round(logistic_coef[["scal"]], 2)` years (95% CI `r round(logistic_ci["scal", "2.5%"], 2)`–`r round(logistic_ci["scal", "97.5%"], 2)`) governing how gradually the curve bends from its low starting level onto that plateau. The diagnostics above do not support the raw-scale fit, though: the Breusch-Pagan test rejects homoscedasticity (BP = 13.56, $p = 0.0002$), and the Shapiro-Wilk test rejects normality of the residuals ($p = 0.0076$). That's not surprising given this site has treated Total Phosphorus as needing a log transform elsewhere (see [k-Nearest Neighbors Regression](knn-regression.qmd) and this chapter's own LOESS fit above, both fit on `log(result)`), and it means the confidence intervals reported here — built from a likelihood profile that still assumes constant-variance normal errors — should be read as approximate; with the variance clearly not constant across the fitted range, the interval widths are unlikely to be well calibrated. The point estimates and the qualitative shape they describe are still informative.
 
 ## Interpretation
 
-LOESS reproduces the same rise-then-plateau shape as k-NN, more smoothly, and confirms the two local methods agree on where the record actually bends. Neither, though, can say whether the apparent plateau is a real leveling-off or just where the local windows happen to average out — that requires a model with an actual significance test attached. [Generalized Additive Models](gam.qmd), next, keep the same flexible-curve idea but restore that inferential machinery: a fitted smooth term with a p-value, and a confidence band that means something.
+LOESS reproduces the same rise-then-plateau shape as k-NN, more smoothly, and confirms the two local methods agree on where the record actually bends. That agreement, and the lack of any significance test attached to a purely local fit, is what licenses the move in "Committing to the logistic form" above: rather than stop at a curve with no coefficient attached, the shape both nonparametric passes revealed gets fit directly as a logistic growth curve, recovering a plateau level, an inflection point, and confidence intervals on both. That's the payoff available whenever a diagnosed shape matches a known family. It isn't available for every series, though — [Generalized Additive Models](gam.qmd), next, covers Total Copper's step-and-spike pattern, which doesn't resolve into any recognizable parametric family, so the flexibility has to stay in the model itself rather than being handed off to a curve like this one.

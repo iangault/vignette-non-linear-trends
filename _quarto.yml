@@ -43,7 +43,7 @@ website:
             href: chapters/piecewise-regression.qmd
           - text: "4. Changepoint Detection"
             href: chapters/changepoint-detection.qmd
-      - section: "Nonparametric Methods"
+      - section: "Diagnosing Shape"
         contents:
           - text: "5. k-Nearest Neighbors Regression"
             href: chapters/knn-regression.qmd
