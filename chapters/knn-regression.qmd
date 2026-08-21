@@ -14,13 +14,15 @@ non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_ty
 tp_wq <- non_linear_wq |> filter(analyte == "Total Phosphorus")
 ```
 
-## A purely local rule
+## Predicting by averaging nearby points
 
-Total Phosphorus rises and then settles onto a plateau — not the slope break of [piecewise regression](piecewise-regression.qmd), not the level shift of [changepoint detection](changepoint-detection.qmd), and no natural single knot an analyst would place by eye. **k-nearest-neighbors regression** sidesteps the question of a functional form entirely: for a query point $x_0$ on `year_frac`, let $N_k(x_0)$ be the set of $k$ training observations closest to it (Euclidean distance on `year_frac`), and predict
+Total Phosphorus rises through the middle years of the record and then settles onto a plateau. That shape doesn't match the case studies covered so far: [piecewise regression](piecewise-regression.qmd) assumes a single slope break, [changepoint detection](changepoint-detection.qmd) assumes a single level shift, and neither describes a smooth rise into a plateau. There's also no single point an analyst could point to as "the" knot.
 
-$$\hat y(x_0) = \frac{1}{k} \sum_{i \in N_k(x_0)} y_i,$$
+**k-nearest-neighbors (k-NN) regression** handles this by not committing to any functional form at all. For a query point $x_0$ on `year_frac`, it finds the $k$ training observations closest to it (Euclidean distance on `year_frac`) — call this neighborhood $N_k(x_0)$ — and predicts the plain average of their responses:
 
-the plain average of their responses. There's no linear predictor at all here, not even the feature-engineered kind covered in [The Regression Framework](regression-framework.qmd) — no coefficients are estimated, just a lookup-and-average rule applied at prediction time.
+$$\hat y(x_0) = \frac{1}{k} \sum_{i \in N_k(x_0)} y_i.$$
+
+This is a lookup-and-average rule applied at prediction time, and it breaks from every method in this site so far in one specific way: those methods all still fit a linear predictor underneath, even when the shape looks nonlinear. [Piecewise regression](piecewise-regression.qmd)'s hinge term, for instance, is just an extra column handed to `lm()` — see [The Regression Framework](regression-framework.qmd) for why that still counts as "linear." k-NN has no linear predictor at all: no coefficients are estimated, just this neighborhood average, recomputed fresh at each query point.
 
 Concentration data is modeled on the log scale throughout this site for the reasons covered in [Transformations](transformations.qmd) — a multiplicative process where variability scales with the mean — and Total Phosphorus is no exception; `log(result)` is used below.
 
@@ -107,12 +109,12 @@ ggplot() +
   nlt_theme
 ```
 
-There's no confidence band here, and none is available: `knnreg()` produces a fitted value at each point, not a coefficient with a standard error. Nothing about this fit supports a significance test, a slope estimate, or a p-value — it's a **prediction-oriented baseline**, not an inferential model. The cross-validated MSE above (`r round(min(cv_mse), 4)` on the log scale) is the one number this method offers in place of the usual diagnostics, and it answers "how well does this rule predict held-out points," not "is there a real trend here."
+No confidence band is shown here, because none is available: `knnreg()` produces a fitted value at each point, without a coefficient or a standard error behind it. That rules out a significance test, a slope estimate, or a p-value. This fit is best read as a **prediction-oriented baseline**: the cross-validated MSE above (`r round(min(cv_mse), 4)` on the log scale) is the one number the method offers, and it measures how well the rule predicts held-out points, not whether the apparent trend is statistically real.
 
 ## Interpretation
 
-k-NN recovers the rise-and-plateau shape without being told any functional form, using only a neighborhood-averaging rule tuned by cross-validation. That's useful for showing what the record looks like, but it stops there: no coefficient says how fast Phosphorus rose, no interval bounds where the plateau sits, and no test says whether the apparent leveling-off is real or just where the data happens to thin out. The next section fits [LOESS](loess-smoothing.qmd) to the same data — a locally weighted regression in place of k-NN's local average, still without a global functional form, but a step closer to the kind of fit a formal model can be built on.
+k-NN recovers the rise-and-plateau shape using only a neighborhood-averaging rule tuned by cross-validation, without being told any functional form. That makes it useful for showing what the record looks like, and nothing more: no coefficient says how fast Phosphorus rose, no interval bounds where the plateau sits, and no test distinguishes a real leveling-off from a stretch where the data happens to thin out. The next section fits [LOESS](loess-smoothing.qmd) to the same data. LOESS replaces k-NN's local average with a locally weighted regression — still no global functional form, but a step closer to the kind of fit a formal model can be built on.
 
 ## Extending this analysis
 
-A rise-then-plateau shape like this one is exactly what a logistic growth curve describes, and k-NN's fitted curve is a reasonable read of that from the raw data alone. If that read holds up, the better next move for this specific shape isn't necessarily the fully nonparametric route this site takes through LOESS and a GAM — it's fitting the logistic form directly with `nls()`, which would recover the inferential machinery k-NN structurally can't provide (a rate parameter, an inflection point, confidence intervals on both) at a fraction of the parameters a smooth-basis fit needs. That's a genuine tradeoff against the GAM route taken here, not a strictly better option: a parametric curve fit this way is only as good as the assumption that the shape really is logistic, which the GAM never has to commit to.
+A rise-then-plateau shape like this one is exactly what a logistic growth curve describes, and k-NN's fitted curve gives a reasonable read of that shape from the raw data alone. If that read holds up, fitting the logistic form directly with `nls()` can serve this specific shape better than the fully nonparametric route this site takes through LOESS and a GAM. A logistic fit recovers a rate parameter, an inflection point, and confidence intervals on both — inferential machinery k-NN structurally can't provide — using far fewer parameters than a smooth-basis fit needs. This is a genuine tradeoff against the GAM route taken here, and it comes with its own cost: a parametric curve fit this way is only as good as the assumption that the shape really is logistic, an assumption the GAM never has to make.

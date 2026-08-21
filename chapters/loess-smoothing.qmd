@@ -14,7 +14,7 @@ non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_ty
 tp_wq <- non_linear_wq |> filter(analyte == "Total Phosphorus")
 ```
 
-## A local regression instead of a local average
+## Fitting a small weighted regression at every point
 
 This is the same Total Phosphorus record used for [k-Nearest Neighbors Regression](knn-regression.qmd) — a rise through the middle years that settles onto a plateau — fit here with **LOESS** instead, for a direct comparison of two local methods on identical data. Where k-NN predicts each point as the flat average of its $k$ nearest neighbors, LOESS fits a separate *weighted regression* at every query point $x_0$:
 
@@ -22,7 +22,7 @@ $$\hat\beta(x_0) = \arg\min_\beta \sum_{i=1}^n w_i(x_0)\left(y_i - x_i^\top \bet
 
 using only the nearby observations — the tricube weight $w_i(x_0)$ is largest for points right at $x_0$, decays smoothly to zero at the edge of the neighborhood, and is exactly zero beyond it, where $h$ is set so the neighborhood always contains the proportion of the data given by `span`. `stats::loess()` is base R — no additional package is required. The response is modeled on the log scale, for the same reasons covered in [Transformations](transformations.qmd).
 
-**`degree` sets the order of each local fit, not the shape of the whole curve.** `degree = 0` is a local weighted average — closer in spirit to k-NN's flat average than to a regression at all. `degree = 1` fits a local straight line at every point; `degree = 2` fits a local parabola. It's easy to misread `degree = 1` as meaning the fitted curve is a single straight line end to end, but that's not what's happening: LOESS fits a *different* local line at every target point, so `degree = 1` still produces a curve that bends over the full record, made up of many local linear pieces stitched together. `lm(y ~ x)` fits one slope for the entire dataset; `loess(y ~ x, degree = 1)` fits many, each valid only in its own neighborhood.
+**`degree` sets the order of each local fit, not the shape of the whole curve.** `degree = 0` is a local weighted average — closer in spirit to k-NN's flat average than to a regression at all. `degree = 1` fits a local straight line at every point; `degree = 2` fits a local parabola. LOESS fits a *different* local line at every target point, so `degree = 1` still produces a curve that bends over the full record, made up of many local linear pieces stitched together — `lm(y ~ x)` fits one slope for the entire dataset, while `loess(y ~ x, degree = 1)` fits many, each valid only in its own neighborhood. It's worth being explicit about this because `degree = 1` is easy to misread as meaning the fitted curve is a single straight line end to end; it isn't.
 
 ## The shape in the record
 
@@ -82,9 +82,9 @@ ggplot() +
 
 The two curves track the same rise-and-plateau shape closely, but LOESS's is visibly smoother through the transition — a consequence of fitting a local line rather than a flat local average, so the curve doesn't have to jump between step-like neighborhood means as the window slides along the record.
 
-## No inferential story here either
+## Why LOESS doesn't support a significance test
 
-LOESS doesn't recover what k-NN gave up. There's no global coefficient, no standard error, and no significance test attached to this fit — `loess()` doesn't return an object structured to support one the way `lm()` or `mgcv::gam()` do. This isn't a limitation specific to the implementation; it's a structural consequence of fitting a separate regression at every point rather than a single set of parameters over the whole record. LOESS is a genuinely useful tool for *prediction*, but it comes at the cost of the inferential interpretability a parametric or semi-parametric model provides. Its role in this progression is the smooth-curve bridge to the next chapter, not an answer to "is this trend statistically real."
+Fitting a separate regression at every point, rather than one set of parameters over the whole record, has a real cost: there's no global coefficient, no standard error, and no significance test attached to this fit. `loess()` doesn't return an object structured to support one the way `lm()` or `mgcv::gam()` do, and that's a structural consequence of the method, not a gap in the implementation. LOESS is a genuinely useful tool for *prediction*, at the cost of the inferential interpretability a parametric or semi-parametric model provides. Its role in this progression is to serve as the smooth-curve bridge to the next chapter, which restores that inferential machinery.
 
 ## Interpretation
 
