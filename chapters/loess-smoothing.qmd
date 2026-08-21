@@ -95,6 +95,12 @@ $$y(t) = \frac{\mathrm{Asym}}{1 + \exp\left(\frac{\mathrm{xmid} - t}{\mathrm{sca
 
 where $\mathrm{Asym}$ is the plateau level, $\mathrm{xmid}$ is the inflection point (the year at which the rise is steepest), and $\mathrm{scal}$ sets how fast the curve transitions between its floor and its plateau. Unlike k-NN or LOESS, this is a genuine parametric commitment: it assumes the record really does follow this specific shape, in exchange for three interpretable, testable parameters instead of a lookup-and-average or a locally weighted line.
 
+This shares its name with logistic *regression* only because both use the same sigmoid curve — the two are otherwise unrelated. Logistic regression models a binary or categorical outcome $Y_i$, using the same five-part [framework](regression-framework.qmd) OLS does but swapping in a Bernoulli random component and the **logit link**:
+
+$$g(\mu_i) = \log\left(\frac{\mu_i}{1 - \mu_i}\right) = \eta_i = \beta_0 + \beta_1 X_i,$$
+
+so the linear predictor $\eta_i$ is pushed through the logit's inverse to keep the fitted *probability* $\mu_i$ between 0 and 1; $\beta_0, \beta_1$ are estimated by maximum likelihood, not least squares. Here the response, phosphorus concentration, is already continuous, and the sigmoid is used directly as the mean function of a nonlinear regression — `Asym`, `xmid`, and `scal` play no role analogous to a link, and the fit below is by least squares, not the maximum-likelihood machinery a binomial GLM requires.
+
 This fit is deliberately made on the raw concentration scale rather than the log scale used elsewhere on this page: the plateau parameter `Asym` is directly interpretable in mg/L this way, at the cost of the constant-variance assumption the log transform was adopted to satisfy — which is exactly what the diagnostics below check.
 
 ```{r}
@@ -133,6 +139,8 @@ ggplot() +
   theme(legend.position = "right")
 ```
 
+The logistic curve tracks the same rise-then-plateau shape as k-NN and LOESS, but not exactly — it's a visibly close fit, not an identical one. At the start of the record it sits below both local curves, since the logistic form commits to a single floor asymptote where the local fits are free to follow whatever the earliest points happen to do. Through the transition and plateau it runs a little above them instead, because a three-parameter curve can't reproduce every local wiggle the local fits pick up — it's fitting one global shape, not a sequence of local averages. Those gaps are small relative to the record's range, but they're the visible cost of the parametric commitment: LOESS and k-NN chase the data wherever it goes, while the logistic curve can only bend the three ways `Asym`, `xmid`, and `scal` let it.
+
 ### What the logistic fit recovers
 
 ```{r}
@@ -146,4 +154,4 @@ Phosphorus plateaus at an estimated `r round(logistic_coef[["Asym"]], 3)` mg/L (
 
 ## Interpretation
 
-LOESS reproduces the same rise-then-plateau shape as k-NN, more smoothly, and confirms the two local methods agree on where the record actually bends. That agreement, and the lack of any significance test attached to a purely local fit, is what licenses the move in "Committing to the logistic form" above: rather than stop at a curve with no coefficient attached, the shape both nonparametric passes revealed gets fit directly as a logistic growth curve, recovering a plateau level, an inflection point, and confidence intervals on both. That's the payoff available whenever a diagnosed shape matches a known family. It isn't available for every series, though — [Generalized Additive Models](gam.qmd), next, covers Total Copper's step-and-spike pattern, which doesn't resolve into any recognizable parametric family, so the flexibility has to stay in the model itself rather than being handed off to a curve like this one.
+LOESS reproduces the same rise-then-plateau shape as k-NN, more smoothly, and confirms the two local methods agree on where the record actually bends. That agreement, and the lack of any significance test attached to a purely local fit, is what licenses the move in "Committing to the logistic form" above: rather than stop at a curve with no coefficient attached, the shape both nonparametric passes revealed gets fit directly as a logistic growth curve, recovering a plateau level, an inflection point, and confidence intervals on both. That's the payoff available whenever a diagnosed shape matches a known family, and it comes at the small cost noted above — the logistic curve trades away some of LOESS and k-NN's closeness to the local data for a fit that can be described in three interpretable numbers with confidence intervals attached. It isn't available for every series, though — [Generalized Additive Models](gam.qmd), next, covers Total Copper's step-and-spike pattern, which doesn't resolve into any recognizable parametric family, so the flexibility has to stay in the model itself rather than being handed off to a curve like this one.

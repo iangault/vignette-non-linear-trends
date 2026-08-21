@@ -24,7 +24,15 @@ $$\hat y(x_0) = \frac{1}{k} \sum_{i \in N_k(x_0)} y_i.$$
 
 This is a lookup-and-average rule applied at prediction time, and it breaks from every method in this site so far in one specific way: those methods all still fit a linear predictor underneath, even when the shape looks nonlinear.
 
-[Piecewise regression](piecewise-regression.qmd)'s hinge term, for instance, is just an extra column handed to `lm()` — see [The Regression Framework](regression-framework.qmd) for why that still counts as "linear." k-NN has no linear predictor at all: no coefficients are estimated, just this neighborhood average, recomputed fresh at each query point. That makes this chapter, and [LOESS](loess-smoothing.qmd) after it, a diagnostic pass rather than an endpoint: the goal here is to see the record's shape clearly enough to decide what to do with it next, not to settle for a curve with no coefficient or p-value attached to it.
+[Piecewise regression](piecewise-regression.qmd)'s hinge term, for instance, is just an extra column handed to `lm()` — see [The Regression Framework](regression-framework.qmd) for why that still counts as "linear." k-NN has no linear predictor at all: no coefficients are estimated, just this neighborhood average, recomputed fresh at each query point.
+
+That makes this chapter, and [LOESS](loess-smoothing.qmd) after it, a **diagnostic pass** rather than an endpoint — the goal is to see the record's shape clearly enough to decide what to do with it next, not to settle for a curve with no coefficient or p-value attached to it.
+
+**Nonparametric** is the word for that: no functional form is assigned up front, so the fit is genuinely useful for *prediction* — reading off a plausible value at any point in the record — but supports no inference at all, since there's no coefficient to attach a standard error or a p-value to.
+
+That diagnostic pass then forks in one of two directions once the shape is clear:
+-   **If it resolves into a recognizable family**, it can be handed off to a parametric curve directly and the inferential machinery recovered in one step; that's the move [LOESS](loess-smoothing.qmd) closes on, fitting Total Phosphorus's rise-and-plateau as a logistic growth curve and comparing it back against the k-NN and LOESS fits that found the shape in the first place.
+-  ** If it doesn't resolve into anything recognizable** — Total Copper's step-and-spike pattern, covered in [GAM](gam.qmd), is the case where it doesn't — the flexibility has to stay in the model itself instead of being handed off to a fixed curve.
 
 Concentration data is modeled on the log scale throughout this site for the reasons covered in [Transformations](transformations.qmd) — a multiplicative process where variability scales with the mean — and Total Phosphorus is no exception; `log(result)` is used below.
 
