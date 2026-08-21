@@ -24,6 +24,8 @@ website:
   page-footer:
     left: "© 2026 Ian Gault"
   sidebar:
+    logo: images/sidebar-logo.svg
+    logo-alt: "Non-linear trend icon: a fitted curve with a confidence band"
     style: docked
     search: true
     contents:
