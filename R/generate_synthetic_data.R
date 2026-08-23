@@ -133,15 +133,23 @@ zinc <- make_analyte("Total Zinc", function(t) {
 # section instead). Appended last so its rnorm() draws don't shift the noise
 # stream for the analytes above, which existing chapters are already written
 # and checked against.
+#
+# Each level change is a logistic ramp (width 0.1, ~5-month 10-90% transition)
+# rather than an instantaneous jump: real concentration shifts in a monitored
+# river reach (a dilution/loading change, an upstream discharge shift) phase
+# in over some real span, not a mathematically exact step, and a hard
+# discontinuity is also something no continuous spline basis can ever fully
+# resolve however large k gets, forcing an artificially large k just to
+# approximate a corner that isn't meant to be physically exact anyway.
+logistic_step <- function(t, center, width) 1 / (1 + exp(-(t - center) / width))
 copper <- make_analyte("Total Copper", function(t) {
-  dplyr::case_when(
-    t < 2   ~ log(5),
-    t < 4.5 ~ log(12),
-    t < 5   ~ log(25),
-    t < 7   ~ log(12),
-    t < 9   ~ log(3),
-    TRUE    ~ log(7)
-  )
+  w <- 0.1
+  log(5) +
+    (log(12) - log(5))  * logistic_step(t, 2,   w) +
+    (log(25) - log(12)) * logistic_step(t, 4.5, w) +
+    (log(12) - log(25)) * logistic_step(t, 5,   w) +
+    (log(3)  - log(12)) * logistic_step(t, 7,   w) +
+    (log(7)  - log(3))  * logistic_step(t, 9,   w)
 }, noise_sd = 0.12)
 
 non_linear <- bind_rows(tn, cond, tp, do_, chloride, zinc, copper)
