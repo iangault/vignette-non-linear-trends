@@ -139,3 +139,4 @@ ggplot(non_linear_wq |> order_analytes(), aes(date, result)) +
 
 - UBC Master of Data Science, *DSCI 562: Regression II* — [Lecture 1: Link Functions and Count Regression](https://ubc-mds-2018-19.github.io/DSCI_562_regr-2/notes/lecture1-glm-link-functions-and-count-regression.html), [Lecture 6: Local Regression](https://ubc-mds-2018-19.github.io/DSCI_562_regr-2/notes/lecture6_local_regression.html)
 - Singh, A. and Singh, A.K. (2015). *ProUCL Version 5.1 Technical Guide: Statistical Software for Environmental Applications for Data Sets with and without Nondetect Observations*. EPA/600/R-07/041. U.S. Environmental Protection Agency, Office of Research and Development.
+- Wood, S.N. (2017). *Generalized Additive Models: An Introduction with R*, Second Edition. CRC Press. Grounds the [GAM](chapters/gam.qmd) and [GAMM](chapters/gamm.qmd) chapters' effective-degrees-of-freedom, `lpmatrix`/prediction-variance, and AR(1)-correlated-residual methodology.

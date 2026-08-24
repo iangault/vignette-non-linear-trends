@@ -24,11 +24,13 @@ A GAM's significance test on a smooth term — the F-test behind an edf and a p-
 
 ### What a GAMM adds: an AR(1) correlation structure
 
-A generalized additive **mixed** model keeps the exact same additive-smooth structure — the same `s(year_frac) + s(month)`, the same basis functions, the same idea of a fitted penalty deciding how much wiggle survives — and adds one thing: an explicit model for how the *residuals* are correlated, rather than assuming they aren't. `mgcv::gamm()` fits this by handing the smooth-term machinery to `nlme::lme()` underneath, which accepts a `correlation` argument — here, `corAR1()`, an **AR(1) structure** where the correlation between any two residuals decays geometrically with how far apart in time they are:
+A generalized additive **mixed** model keeps the same additive-smooth structure — the same `s(year_frac) + s(month)`, the same basis functions, the same idea of a fitted penalty deciding how much wiggle survives — and adds one thing: an explicit model for how the *residuals* are correlated, rather than assuming they aren't. `mgcv::gamm()` fits this by handing the smooth-term machinery to `nlme::lme()` underneath, which accepts a `correlation` argument — here, `corAR1()`, an **AR(1) structure** where the correlation between any two residuals decays geometrically with how far apart in time they are:
 
 $$\mathrm{Corr}(\varepsilon_i, \varepsilon_{i-h}) = \phi^{|h|}, \qquad h = 0, 1, 2, \dots$$
 
 A single parameter $\phi$ (with $|\phi| < 1$ for the process to be stationary) sets that whole decay: $h = 1$ apart (adjacent months) gives correlation $\phi$ itself, $h = 2$ apart gives $\phi^2$, and so on, fading toward zero for observations far apart rather than dropping to zero immediately after one lag. Nothing about the mean structure changes; what changes is that the smooth terms' significance tests now account for observations not being independent, which is the actual point of this chapter.
+
+This case study follows the same template Wood (2017, §7.7.2) uses for nearly a decade of daily Cairo air temperature: a cyclic seasonal smooth plus a smooth long-term trend, fit first as a plain GAM and then refit with `gamm()` and a `corAR1()` correlation structure once the residuals showed short-term autocorrelation the seasonal and trend smooths hadn't absorbed — there, too, the point of adding the AR(1) term was to establish whether a real temperature trend survived once auto-correlated noise was modeled explicitly rather than left for the smooths to soak up.
 
 ## The shape in the record
 
@@ -52,6 +54,11 @@ Dissolved Oxygen's concentration is set by gas solubility, reaeration, and biolo
 
 ```{r}
 #| label: do-gam-fit
+# bs = "tp": thin-plate spline for the long-term trend, as in the GAM chapter
+# bs = "cc": cyclic cubic spline for month, so the fitted curve meets itself at the year boundary
+#            instead of drawing an artificial jump between December and January
+# knots = list(month = ...): pins that boundary at 0.5/12.5 rather than 1/12, so month itself
+#            (not some padding value) is where the cycle closes
 fit_gam <- gam(log(result) ~ s(year_frac, bs = "tp", k = 10) + s(month, bs = "cc", k = 12),
                data = do_wq, knots = list(month = c(0.5, 12.5)), method = "REML")
 summary(fit_gam)
@@ -66,7 +73,7 @@ Read at face value, `s(year_frac)` looks like real nonlinear structure — edf 3
 acf(resid(fit_gam), main = "Residual autocorrelation, naive GAM")
 ```
 
-*Lag-1 autocorrelation* in the residuals is a little over 0.5 — the residual left over after month and year_frac's smooths are accounted for is still substantially predictable from the previous month's residual, which an independent-errors model has no way to represent. That's the assumption `s(year_frac)`'s edf-of-3.85 and its F-test were resting on, and it doesn't hold here. The concern isn't hypothetical: a smoothing penalty free to explain slow-moving, positively-autocorrelated noise as if it were curvature will do exactly that, because from the fitting procedure's point of view, a real multi-year wiggle and a run of correlated residuals both look like "structure the flat line doesn't capture."
+*Lag-1 autocorrelation* in the residuals is a little over 0.5 — the residual left over after month and year_frac's smooths are accounted for is still substantially predictable from the previous month's residual, which an independent-errors model has no way to represent. That's the assumption `s(year_frac)`'s edf-of-3.85 and its F-test were resting on, and it doesn't hold here. The concern isn't hypothetical: a smoothing penalty free to explain slow-moving, positively-autocorrelated noise as if it were curvature will do just that, because from the fitting procedure's point of view, a real multi-year wiggle and a run of correlated residuals both look like "structure the flat line doesn't capture."
 
 ## Refitting with an explicit correlation structure
 
@@ -74,6 +81,9 @@ acf(resid(fit_gam), main = "Residual autocorrelation, naive GAM")
 
 ```{r}
 #| label: do-gamm-fit
+# same smooth terms as fit_gam above; only the correlation argument is new
+# corAR1(form = ~1): lag-1 autocorrelation ordered by row, since do_wq is already one
+#            evenly-spaced monthly series with no separate sites/groups to keep apart
 fit_gamm <- gamm(log(result) ~ s(year_frac, bs = "tp", k = 10) + s(month, bs = "cc", k = 12),
                   data = do_wq, knots = list(month = c(0.5, 12.5)),
                   correlation = corAR1(form = ~1))
@@ -84,22 +94,26 @@ summary(fit_gamm$gam)
 
 ```{r}
 #| label: do-gamm-phi
+# unconstrained = FALSE: return phi on its natural [-1, 1] scale, not lme's internal optimization scale
 phi <- coef(fit_gamm$lme$modelStruct$corStruct, unconstrained = FALSE)
 phi
 
+# same model, correlation argument dropped, as the no-AR(1) comparison for the AIC check below
 fit_gamm0 <- gamm(log(result) ~ s(year_frac, bs = "tp", k = 10) + s(month, bs = "cc", k = 12),
                    data = do_wq, knots = list(month = c(0.5, 12.5)))
 AIC(fit_gamm0$lme, fit_gamm$lme)
 ```
 
-The estimated correlation is $\hat\phi \approx$ `r round(phi, 2)`, and the AR(1) model's AIC is decisively lower than the no-correlation version's — the correlation structure is earning its keep, not just adding a parameter for its own sake.
+The estimated correlation is $\hat\phi \approx$ `r round(phi, 2)`, and the AR(1) model's AIC is decisively lower than the no-correlation version's — the correlation structure is earning its keep rather than adding a parameter for its own sake.
 
-Once it's in the model, `s(year_frac)`'s edf drops back to 1.00: a straight line. The wiggle the naive fit found on the trend term evaporates once the residual correlation is given somewhere else to go. The smooth term is still significant ($p = 8.1\times10^{-6}$) — there's a real long-term decline here — but it's a simple, constant-rate decline, not the more complex-looking trajectory the naive GAM implied.
+Once it's in the model, `s(year_frac)`'s edf drops back to 1.00: a straight line. The wiggle the naive fit found on the trend term evaporates once the residual correlation is given somewhere else to go. The smooth term is still significant ($p = 8.1\times10^{-6}$) — there's a real long-term decline here — but it's a simple, constant-rate decline, much simpler than the trajectory the naive GAM implied.
 
 ### Corrected rate per year
 
 ```{r}
 #| label: do-gamm-rate
+# type = "terms", terms = "s(year_frac)": returns only that smooth's contribution, so the
+# month column's value below doesn't matter — it's a placeholder to satisfy predict(), not an input to this term
 year_grid <- data.frame(year_frac = range(do_wq$year_frac), month = c(1, 1))
 pred <- predict(fit_gamm$gam, newdata = year_grid, type = "terms", terms = "s(year_frac)")
 slope_per_year <- diff(pred[, 1]) / diff(year_grid$year_frac)
@@ -111,16 +125,20 @@ The corrected rate is about `r sprintf("%.2f%%", (exp(slope_per_year) - 1) * 100
 
 ## The trend, with seasonality removed
 
-A single slope-per-year number is a summary; seeing the trend itself is a better check on it. `predict(..., type = "terms")` isolates `s(year_frac)`'s contribution on its own, separate from `s(month)`, which is exactly the "trend component" a classical decomposition (e.g. STL) would plot — recovered here as a term of the fitted GAMM rather than by a separate decomposition step.
+A single slope-per-year number is a summary; seeing the trend itself is a better check on it. `predict(..., type = "terms")` isolates `s(year_frac)`'s contribution on its own, separate from `s(month)`, which is the "trend component" a classical decomposition (e.g. STL) would plot — recovered here as a term of the fitted GAMM rather than by a separate decomposition step.
 
 ```{r}
 #| label: do-gamm-trend-plot
+# 200-point grid spanning the record, for a smooth trend curve
+# month: placeholder value, as in the rate chunk above — type = "terms" ignores it
 trend_grid <- data.frame(
   year_frac = seq(min(do_wq$year_frac), max(do_wq$year_frac), length.out = 200),
   month = 6
 )
 trend_term <- predict(fit_gamm$gam, newdata = trend_grid, type = "terms",
                        terms = "s(year_frac)", se.fit = TRUE)
+# GAM smooth terms are centered at zero by construction, so the intercept is added
+# back in to plot the trend on the response's actual scale rather than as a deviation from it
 intercept <- coef(fit_gamm$gam)[["(Intercept)"]]
 trend_grid <- trend_grid |>
   mutate(
@@ -138,19 +156,31 @@ ggplot(trend_grid, aes(year_frac, exp(fit))) +
   nlt_theme
 ```
 
-The band widens gradually toward both ends of the record, as fitted-curve uncertainty usually does away from the bulk of the data, but never crosses back to flat or rising — consistent with the significant, monotonic decline reported above, and a direct visual check on the `edf = 1.00` finding: the line drawn here really is straight, not a curve that happens to average out to a negative slope.
+The band widens gradually toward both ends of the record, as fitted-curve uncertainty usually does away from the bulk of the data, but never crosses back to flat or rising — consistent with the significant, monotonic decline reported above, and a visual check on the `edf = 1.00` finding: the line drawn here is genuinely straight, the curvature penalized out entirely rather than merely averaging out to a negative slope.
 
-## Diagnostics
+## Model diagnostics
+
+### Homoscedasticity and normality
 
 ```{r}
-#| label: do-gamm-diagnostics
+#| label: do-gamm-resid
+# resid(..., type = "normalized"): Pearson residuals divided through by the fitted AR(1)
+# structure, so they should look like independent noise if the correction worked
 resid_norm <- as.numeric(resid(fit_gamm$lme, type = "normalized"))
 shapiro.test(resid_norm)
 bptest(lm(resid_norm ~ fitted(fit_gamm$gam)))
+```
+
+Both tests fail to reject their null on the normalized residuals: Shapiro-Wilk ($p = 0.619$) finds no evidence of non-normality, and Breusch-Pagan ($p = 0.363$) finds no evidence of heteroscedasticity.
+
+### Independence
+
+```{r}
+#| label: do-gamm-acf-corrected
 acf(resid_norm, main = "Residual autocorrelation, AR(1)-corrected")
 ```
 
-The normalized residuals — the model's own accounting for the AR(1) structure, standardized so they should look like independent noise if the correction worked — pass both tests (Shapiro-Wilk $p = 0.619$, Breusch-Pagan $p = 0.363$), and the lag-1 autocorrelation that was above 0.5 in the naive fit is now essentially zero. The correction did what it was supposed to.
+The lag-1 autocorrelation that was above 0.5 in the naive fit is now close to zero: the correction did what it was supposed to.
 
 ## Interpretation
 
