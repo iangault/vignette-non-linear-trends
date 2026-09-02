@@ -18,7 +18,7 @@ tp_wq <- non_linear_wq |> filter(analyte == "Total Phosphorus")
 
 k-nearest-neighbors is most often introduced as a **classifier**: to label a query point, find its $k$ closest training points and take a majority vote of their classes. The **regression** version keeps the same lookup — find the $k$ closest points — and replaces the vote with an average of their (continuous) response values. Nothing else about the method changes; "regression" here just means the thing being predicted is a number, not a category.
 
-It's commonly filed under **machine learning** rather than classical statistics, specifically as a *supervised* (it learns from labeled training examples), *non-parametric* (no fixed functional form), *instance-based* method — nothing is estimated ahead of time, so all the "learning" happens at prediction time by looking up nearby stored examples.
+It's commonly filed under **machine learning** rather than classical statistics, specifically as a **supervised** (it learns from labeled training examples), **non-parametric** (no fixed functional form), **instance-based** method — nothing is estimated ahead of time, so all the "learning" happens at prediction time by looking up nearby stored examples.
 
 Total Phosphorus rises through the middle years of the record and then settles onto a plateau. That shape doesn't match the case studies covered so far: [piecewise regression](piecewise-regression.qmd) assumes a single slope break, [changepoint detection](changepoint-detection.qmd) assumes a single level shift, and neither describes a smooth rise into a plateau. There's also no single point an analyst could point to as "the" knot.
 
@@ -66,7 +66,7 @@ ggplot() +
   )
 ```
 
-A **query point** $x_0$ is just wherever a prediction is wanted — it isn't estimated by the algorithm, it's chosen by whoever's asking. That's worth being explicit about because k-NN is easy to conflate with k-means clustering: k-means invents $k$ centroids by starting them at random and iteratively updating their positions. k-NN has no centroids and nothing random — for a query point $x_0$ on `year_frac`, it finds the $k$ training observations closest to it by this distance (here, on `year_frac` alone) — call this neighborhood $N_k(x_0)$ — and predicts the plain average of their responses. The fitted curve below is built from many query points along a plotting grid, each one an independent lookup-and-average:
+A **query point** $x_0$ is just wherever a prediction is wanted — it's chosen by whoever's asking, rather than estimated by the algorithm. That's worth being explicit about because k-NN is easy to conflate with k-means clustering: k-means invents $k$ centroids by starting them at random and iteratively updating their positions. k-NN has no centroids and nothing random — for a query point $x_0$ on `year_frac`, it finds the $k$ training observations closest to it by this distance (here, on `year_frac` alone) — call this neighborhood $N_k(x_0)$ — and predicts the plain average of their responses. The fitted curve below is built from many query points along a plotting grid, each one an independent lookup-and-average:
 
 $$\hat y(x_0) = \frac{1}{k} \sum_{i \in N_k(x_0)} y_i.$$
 
@@ -78,11 +78,11 @@ This is a lookup-and-average rule applied at prediction time, and it breaks from
 
 That makes this chapter, and [LOESS](loess-smoothing.qmd) after it, a **diagnostic pass** rather than an endpoint — the goal is to see the record's shape clearly enough to decide what to do with it next, not to settle for a curve with no coefficient or p-value attached to it.
 
-**Nonparametric** is the word for that: no functional form is assigned up front, so the fit is genuinely useful for *prediction* — reading off a plausible value at any point in the record — but supports no inference at all, since there's no coefficient to attach a standard error or a p-value to.
+**Nonparametric** is the word for that: no functional form is assigned up front, so the fit is genuinely useful for **prediction** — reading off a plausible value at any point in the record — but supports no **inference** at all, since there's no coefficient to attach a standard error or a p-value to.
 
 That diagnostic pass then forks in one of two directions once the shape is clear:
--   **If it resolves into a recognizable family**, it can be handed off to a parametric curve directly and the inferential machinery recovered in one step; that's the move [Post-Diagnosis: Committing to a Parametric Form](parametric-commitment.qmd) makes, fitting Total Phosphorus's rise-and-plateau as a logistic growth curve and comparing it back against the k-NN and LOESS fits that found the shape in the first place.
--  **If it doesn't resolve into anything recognizable** — Total Copper's step-and-spike pattern, covered in [GAM](gam.qmd), is the case where it doesn't — the flexibility has to stay in the model itself instead of being handed off to a fixed curve.
+-   If it **resolves into a recognizable family**, it can be handed off to a parametric curve directly and the inferential machinery recovered in one step; that's the move [Post-Diagnosis: Committing to a Parametric Form](parametric-commitment.qmd) makes, fitting Total Phosphorus's rise-and-plateau as a logistic growth curve and comparing it back against the k-NN and LOESS fits that found the shape in the first place.
+-  If it **doesn't resolve into anything recognizable** — Total Copper's step-and-spike pattern, covered in [GAM](gam.qmd), is the case where it doesn't — the flexibility has to stay in the model itself instead of being handed off to a fixed curve.
 
 Concentration data is modeled on the log scale throughout this site for the reasons covered in [Transformations](transformations.qmd) — a multiplicative process where variability scales with the mean — and Total Phosphorus is no exception; `log(result)` is used below.
 
@@ -103,8 +103,8 @@ An early low, roughly flat stretch, a rise through the middle years, and a plate
 ## Choosing k: the bias-variance tradeoff
 
 $k$ is the one tuning parameter this method has, and it controls a direct **bias-variance tradeoff**:
--   A small $k$ averages over only a handful of nearby points, so the fitted curve tracks the training data's noise as much as its signal — *low bias, high variance*.
--   A large $k$ averages over a wide neighborhood, smoothing away real curvature along with the noise — *low variance, high bias*.
+-   A small $k$ averages over only a handful of nearby points, so the fitted curve tracks the training data's noise as much as its signal — **low bias, high variance**.
+-   A large $k$ averages over a wide neighborhood, smoothing away real curvature along with the noise — **low variance, high bias**.
 
 There's no fitted coefficient to inspect here, so the tradeoff has to be shown, not asserted:
 
@@ -188,7 +188,7 @@ ggplot() +
   nlt_theme
 ```
 
-No confidence band is shown here, because none is available: `knnreg()` produces a fitted value at each point, without a coefficient or a standard error behind it. That rules out a significance test, a slope estimate, or a p-value. This fit is best read as a **prediction-oriented baseline**: the cross-validated MSE above (`r round(min(cv_fit$results$RMSE^2), 4)` on the log scale) is the one number the method offers, and it measures how well the rule predicts points in the test set, not whether the apparent trend is statistically real. That number has no meaningful scale on its own — it's the smallest value in the CV table above, i.e. the error at the best-performing $k$ among the candidates tried. Its use is comparative *within this chapter*: it's what picked `best_k` over the other candidates, not a figure to be judged in isolation or against another method's fit.
+No confidence band is shown here, because none is available: `knnreg()` produces a fitted value at each point, without a coefficient or a standard error behind it. That rules out a significance test, a slope estimate, or a p-value. This fit is best read as a **prediction-oriented baseline**: the cross-validated MSE above (`r round(min(cv_fit$results$RMSE^2), 4)` on the log scale) is the one number the method offers, and it measures how well the rule predicts points in the test set, not whether the apparent trend is statistically real. That number has no meaningful scale on its own — it's the smallest value in the CV table above, i.e. the error at the best-performing $k$ among the candidates tried. Its use is comparative within this chapter: it's what picked `best_k` over the other candidates, not a figure to be judged in isolation or against another method's fit.
 
 ## Interpretation
 
@@ -196,7 +196,7 @@ k-NN recovers the rise-and-plateau shape using only a neighborhood-averaging rul
 
 The next chapter fits [LOESS](loess-smoothing.qmd) to the same data with a different local-averaging mechanic — a weighted local regression in place of a flat neighborhood average.
 
-The two methods aren't independent in a strong sense, since both are smoothing the same observations; where their curves agree, what that mainly rules out is the shape being an artifact of k-NN's particular averaging rule rather than a real feature of the record. That's necessary but not sufficient to commit to a parametric curve: the further judgment call — whether the corroborated shape actually resembles a *recognizable* family like logistic growth, rather than resolving into nothing identifiable — is made separately in [Post-Diagnosis: Committing to a Parametric Form](parametric-commitment.qmd), two chapters ahead.
+The two methods aren't independent in a strong sense, since both are smoothing the same observations; where their curves agree, what that mainly rules out is the shape being an artifact of k-NN's particular averaging rule rather than a real feature of the record. That's necessary but not sufficient to commit to a parametric curve: the further judgment call — whether the corroborated shape actually resembles a recognizable family like logistic growth, rather than resolving into nothing identifiable — is made separately in [Post-Diagnosis: Committing to a Parametric Form](parametric-commitment.qmd), two chapters ahead.
 
 ## Extending this analysis
 

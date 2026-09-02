@@ -39,7 +39,7 @@ This is the case a **generalized additive model (GAM)** is built for: a curve sh
 
     $$y = \underbrace{\beta_0}_{\text{intercept basis}} + \underbrace{\beta_1 x}_{\text{slope basis}} + \underbrace{\beta_2 (x - c)_+}_{\text{hinge basis}}.$$
 
-    It's still just a coefficient times a fixed function of $x$, added in — the pattern [Transformations](transformations.qmd) names *feature-engineering the regressor*: handing `lm()` one new column instead of reaching for a response transform.
+    It's still just a coefficient times a fixed function of $x$, added in — the pattern [Transformations](transformations.qmd) names **feature-engineering the regressor**: handing `lm()` one new column instead of reaching for a response transform.
 
 3. **A GAM** is the same move again, scaled up and automated. Instead of one or two hand-picked basis functions like the hinge term, it uses many small, fixed, curved ones, with a fitted penalty — not the analyst — deciding how much of that flexibility survives.
 
@@ -77,7 +77,7 @@ For this purpose, edf is a curvature dial: edf ≈ 1 means the penalty squeezed 
 
 ### Where a GAM sits between a fixed form and no form at all
 
-The basis dimension `k` caps how wiggly the fit is *allowed* to get; the fitted penalty decides how much of that allowance actually gets used, based on the data. That makes a GAM's flexibility data-driven, sitting between a fixed parametric form (piecewise regression, with its hand-placed hinge) and no form at all (k-NN, LOESS, with no coefficients at all).
+The basis dimension `k` caps how wiggly the fit is allowed to get; the fitted penalty decides how much of that allowance actually gets used, based on the data. That makes a GAM's flexibility data-driven, sitting between a fixed parametric form (piecewise regression, with its hand-placed hinge) and no form at all (k-NN, LOESS, with no coefficients at all).
 
 ### Why a GAM supports a significance test
 
@@ -197,7 +197,7 @@ ggplot() +
 
 ## Where the record is rising, falling, or flat
 
-A single edf and p-value confirm the smooth term overall departs from flat, but they only speak to the record as a whole. They say nothing about *where* the record is moving in a given direction, which is the question a regulator actually asks. That question is answered by the derivative of the fitted curve — its local slope — and a confidence interval on that derivative, estimated by finite differences: nudge the fitted curve forward and backward by a small step, take $(\hat y(t+h) - \hat y(t-h))/2h$ as the local slope, and get its standard error from `predict(..., type = "lpmatrix")`.
+A single edf and p-value confirm the smooth term overall departs from flat, but they only speak to the record as a whole. They say nothing about where the record is moving in a given direction, which is the question a regulator actually asks. That question is answered by the derivative of the fitted curve — its local slope — and a confidence interval on that derivative, estimated by finite differences: nudge the fitted curve forward and backward by a small step, take $(\hat y(t+h) - \hat y(t-h))/2h$ as the local slope, and get its standard error from `predict(..., type = "lpmatrix")`.
 
 The `lpmatrix` is the "prediction matrix" $X_p$ that maps the model's coefficients onto linear-predictor values at any set of points, so $X_p\hat\beta$ reproduces `predict(fit)` directly and, for any linear combination of predictions defined by a row vector $d$, $\mathrm{Var}(d^\top X_p \hat\beta) = d^\top X_p \, \mathrm{vcov}(\text{fit}) \, X_p^\top d$ (Wood, 2017, §7.2.6) — the same propagation used below with $d$ built from the forward- and backward-shifted rows of $X_p$ instead of a single contrast.
 
@@ -320,7 +320,7 @@ data.frame(
 )
 ```
 
-Even at degree 16, the polynomial's $R^2$ (0.87) and AIC ($-31.5$) both trail the GAM's (0.94 deviance explained, AIC $-118.0$) by a wide margin, and the gap isn't closing quickly as degree increases. The reason is structural: a polynomial term is *global* — every coefficient shapes the curve's behaviour everywhere, so fitting a sharp local step or spike well tends to distort the fit far away from it, or costs an escalating number of parameters trying not to. A spline basis is *local* — each basis function's influence is confined to a neighborhood of its knot, so representing one sharp transition doesn't fight with representing another one elsewhere in the record. That locality, not just a higher effective degree, is what a hand-built polynomial feature can't reproduce no matter how high its degree goes.
+Even at degree 16, the polynomial's $R^2$ (0.87) and AIC ($-31.5$) both trail the GAM's (0.94 deviance explained, AIC $-118.0$) by a wide margin, and the gap isn't closing quickly as degree increases. The reason is structural: a polynomial term is **global** — every coefficient shapes the curve's behaviour everywhere, so fitting a sharp local step or spike well tends to distort the fit far away from it, or costs an escalating number of parameters trying not to. A spline basis is **local** — each basis function's influence is confined to a neighborhood of its knot, so representing one sharp transition doesn't fight with representing another one elsewhere in the record. That locality, not just a higher effective degree, is what a hand-built polynomial feature can't reproduce no matter how high its degree goes.
 
 ## Interpretation
 

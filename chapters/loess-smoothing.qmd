@@ -17,23 +17,23 @@ tp_wq <- non_linear_wq |> filter(analyte == "Total Phosphorus")
 
 ## Fitting a small weighted regression at every point
 
-This is the same Total Phosphorus record used for [k-Nearest Neighbors Regression](knn-regression.qmd) — a rise through the middle years that settles onto a plateau — fit here with **LOESS** instead, for a direct comparison of two local methods on identical data. Where k-NN predicts each point as the flat average of its $k$ nearest neighbors, LOESS fits a separate *weighted regression* at every query point $x_0$:
+This is the same Total Phosphorus record used for [k-Nearest Neighbors Regression](knn-regression.qmd) — a rise through the middle years that settles onto a plateau — fit here with **LOESS** instead, for a direct comparison of two local methods on identical data. Where k-NN predicts each point as the flat average of its $k$ nearest neighbors, LOESS fits a separate **weighted regression** at every query point $x_0$:
 
 $$\hat\beta(x_0) = \arg\min_\beta \sum_{i=1}^n w_i(x_0)\left(y_i - x_i^\top \beta\right)^2, \qquad w_i(x_0) = \left(1 - \left|\frac{x_i - x_0}{h}\right|^3\right)^3_+,$$
 
 using only the nearby observations — the weight $w_i(x_0)$ is largest for points right at $x_0$, decays smoothly to zero at the edge of the neighborhood, and is exactly zero beyond it, where $h$ is the neighborhood radius.
 
-**`span`** is the parameter that sets $h$: it's the proportion of the *total* data included in each local neighborhood, so `span = 0.5` means every local fit uses the nearest 50% of points to $x_0$, and larger `span` values mean wider, smoother neighborhoods.
+**`span`** is the parameter that sets $h$: it's the proportion of the total data included in each local neighborhood, so `span = 0.5` means every local fit uses the nearest 50% of points to $x_0$, and larger `span` values mean wider, smoother neighborhoods.
 
 `stats::loess()` is base R — no additional package is required. The response is modeled on the log scale, for the same reasons covered in [Transformations](transformations.qmd).
 
-**`degree` sets the order of each local fit, not the shape of the whole curve.**
+**`degree`** sets the order of each local fit, distinct from the shape of the whole curve.
 
 - `degree = 0` is a local weighted average — closer in spirit to k-NN's flat average than to a regression at all;
 - `degree = 1` fits a local straight line at every point;
 - `degree = 2` fits a local parabola.
 
-LOESS fits a *different* local line at every target point, so `degree = 1` still produces a curve that bends over the full record, made up of many local linear pieces stitched together. In contrast to `lm(y ~ x)`, which fits one slope for the entire dataset, `loess(y ~ x, degree = 1)` fits many, each valid only in its own neighborhood. In other words, while `degree = 1` fits a local straight line, it isn't straight across the whole dataset.
+LOESS fits a different local line at every target point, so `degree = 1` still produces a curve that bends over the full record, made up of many local linear pieces stitched together. In contrast to `lm(y ~ x)`, which fits one slope for the entire dataset, `loess(y ~ x, degree = 1)` fits many local slopes, each valid only in its own neighborhood.
 
 ## The shape in the record
 
@@ -71,7 +71,7 @@ resid_sd <- mapply(function(sp, deg) {
 data.frame(span_degree_grid, resid_sd = round(resid_sd, 4))
 ```
 
-Residual spread rises as `span` widens and drops as `degree` increases within a fixed span — both expected, since a narrower neighborhood and a higher local order each add flexibility. But the residual SD alone doesn't show *why* the lowest-SD combination isn't the right choice — for that, the fitted curves themselves need to be seen side by side:
+Residual spread rises as `span` widens and drops as `degree` increases within a fixed span — both expected, since a narrower neighborhood and a higher local order each add flexibility. But the residual SD alone doesn't show why the lowest-SD combination isn't the right choice — for that, the fitted curves themselves need to be seen side by side:
 
 ```{r}
 #| label: tp-loess-span-degree-grid
@@ -110,9 +110,9 @@ These aren't just noisier or smoother versions of the same curve — three of th
 
 Only one of those three readings can be right, and the disagreement is concentrated exactly where local regression is least trustworthy: at the boundary of the record, a local fit only has neighbors on one side, so its variance is highest there regardless of `span` or `degree`. The 95% confidence bands make this visible directly — they're narrow through the rise and the middle of the plateau in every panel, then widen noticeably at the right-hand edge, most visibly in `span = 0.3, degree = 2`, exactly where that panel's dip-and-rise appears. A dip, a rise, or a downward tilt confined to the last few points, sitting inside a band that wide, is the kind of artifact boundary variance produces, so none of the three should be read as a discovery about the last years of the record.
 
-`span = 0.5, degree = 1` is used below, not because it happens to look flattest, but because a flat reading close to the boundary is the more conservative call when the alternative shapes only show up as boundary noise rather than a feature the middle of the record also displays.
+`span = 0.5, degree = 1` is used below because a flat reading close to the boundary is the more conservative call, given that the alternative shapes only show up as boundary noise rather than a feature the middle of the record also displays.
 
-Those bands exist at all because each point on the curve comes from a genuine weighted *regression* — an intercept and, at `degree = 1` or `2`, a local slope, estimated by weighted least squares — not a plain average. Any least-squares fit carries a standard error on its coefficients, so `predict(..., se = TRUE)` can propagate that into a standard error on the fitted value at each point, the same way it would for an ordinary `lm()` fit.
+Those bands exist at all because each point on the curve comes from a genuine weighted **regression** — an intercept and, at `degree = 1` or `2`, a local slope, estimated by weighted least squares — not a plain average. Any least-squares fit carries a standard error on its coefficients, so `predict(..., se = TRUE)` can propagate that into a standard error on the fitted value at each point, the same way it would for an ordinary `lm()` fit.
 
 k-NN has no equivalent: it only ever computes an average of the $k$ nearest values, with no coefficients and nothing to attach a standard error to, so `knnreg()` returns a prediction with no attached uncertainty. Nothing in the [earlier comparison plot](knn-regression.qmd) flagged its own boundary as less trustworthy the way the bands above do for LOESS. That doesn't make k-NN's boundary behavior more reliable, though — it's just quieter about the problem.
 
@@ -154,7 +154,7 @@ The two curves track the same rise-and-plateau shape closely, but LOESS's is vis
 
 A **standard error** is how much an estimate would be expected to vary if the data were resampled and the fit redone — it's what a confidence interval is built from, and what a significance test checks an estimate against.
 
-The confidence bands two sections above show that a *pointwise* one exists here: each local fit has its own standard error, which is what widened at the record's boundary. What doesn't exist is a *single* standard error for the whole record. 
+The confidence bands two sections above show that a **pointwise** standard error exists here: each local fit has its own, which is what widened at the record's boundary. A **single** standard error for the whole record does not exist.
 
 ::: callout-tip
 ## Fitting a separate regression at every point, rather than one set of parameters over the whole record, has a real **cost**:  
@@ -162,10 +162,10 @@ The confidence bands two sections above show that a *pointwise* one exists here:
 There's no one global coefficient — no single number for "the trend" — so there's nothing for a global standard error or significance test to attach to. `loess()` doesn't return an object structured to support one the way `lm()` or `mgcv::gam()` do, and that's a structural consequence of the method.
 :::
 
-LOESS is a genuinely useful tool for *prediction*, at the cost of the inferential interpretability a parametric or semi-parametric model provides. Its role in this progression is to establish the shape clearly enough that, if a recognizable family fits, the next chapter can commit to it and recover that inferential machinery directly.
+LOESS is a genuinely useful tool for **prediction**, at the cost of the inferential interpretability a parametric or semi-parametric model provides. Its role in this progression is to establish the shape clearly enough that, if a recognizable family fits, the next chapter can commit to it and recover that inferential machinery directly.
 
 ## Interpretation
 
-LOESS reproduces the same rise-then-plateau shape as k-NN, more smoothly. The two methods aren't independent checks in a strong sense — both are local averages of the same observations. Their agreement is suppose of a real feature of the data, and not an artifact in averaging method.
+LOESS reproduces the same rise-then-plateau shape as k-NN, more smoothly. The two methods aren't independent checks in a strong sense — both are local averages of the same observations. Their agreement supports a real feature of the data rather than an artifact of the averaging method.
 
-Neither fit supports a significance test on its own. But the shape they agree on looks like a logistic growth curve, a recognizable parametric family. Recognizing that is a judgment call, not something either fit tests directly, but it's enough to justify committing to that form. [Post-Diagnosis: Committing to a Parametric Form](parametric-commitment.qmd), next, fits the logistic curve directly and recovers three interpretable numbers — a plateau level, an inflection point, and a transition speed — that neither LOESS nor k-NN could offer.
+Neither fit supports a significance test on its own. But the shape they agree on looks like a logistic growth curve, a recognizable parametric family. Recognizing that is a judgment call rather than something either fit tests directly, and it's enough to justify committing to that form. [Post-Diagnosis: Committing to a Parametric Form](parametric-commitment.qmd), next, fits the logistic curve directly and recovers three interpretable numbers — a plateau level, an inflection point, and a transition speed — that neither LOESS nor k-NN could offer.

@@ -20,14 +20,14 @@ tn <- non_linear_wq |> filter(analyte == "Total Nitrogen")
 A straight-line regression assumes one slope holds across the whole record. Three progressively less restrictive models relax that assumption:
 
 1. **Piecewise constant.** The regressor's range is split into intervals at one or more knots, and each interval gets its own flat mean — no slope at all within a segment, and a jump in the fitted value at every knot.
-2. **Non-continuous piecewise linear.** Each interval gets its own intercept *and* its own slope, by interacting the regressor with the interval indicator. Segments still don't connect at the knots — there's a visible jump in the fitted line even though nothing in the data actually jumped.
+2. **Non-continuous piecewise linear.** Each interval gets its own intercept and its own slope, by interacting the regressor with the interval indicator. Segments still don't connect at the knots — there's a visible jump in the fitted line even though nothing in the data actually jumped.
 3. **Continuous piecewise linear.** Segments are forced to join at each knot by using a hinge function, $(x - c)_+ = \max(0, x - c)$, in place of separate per-interval terms:
    $$y_i = \beta_0 + \beta_1 x_i + \beta_2 (x_i - c)_+ + \varepsilon_i$$
    One global intercept and slope, plus one hinge term per knot that adjusts the slope going forward without introducing a jump.
 
 Total Nitrogen — flat, then a genuine slope break, with no discontinuity in level — belongs at the third stage: two slopes joined at a single knot.
 
-A hinge function is feature engineering on the regressor, not a link function — see [The Regression Framework](regression-framework.qmd) for why a model with a hinge term is still fit by `lm()`, and how that differs from a link function.
+A hinge function is feature engineering on the regressor rather than a link function — see [The Regression Framework](regression-framework.qmd) for why a model with a hinge term is still fit by `lm()`, and how that differs from a link function.
 
 ### Why `log(result)`
 
@@ -52,7 +52,7 @@ ggplot(tn, aes(year_frac, log(result))) +
 
 Although the breakpoint is known from the syntheic data, it was not assumed to be known in our analysis: it was estimated from the data using `segmented::segmented()`, seeded from an initial visual read of the series.
 
-That function starts from a baseline model with a single global slope and no breakpoint, then runs an iterative local search — **Muggeo's algorithm**: re-estimate the breakpoint given the current slopes, re-estimate the slopes given the new breakpoint, repeat to convergence — around the starting value. It is a local search, not an exhaustive one, so the starting value needs to be in the right neighborhood rather than exact; here, roughly year 6 (`psu = 6`) into the twelve-year record, read off the plot above.
+That function starts from a baseline model with a single global slope and no breakpoint, then runs an iterative local search — **Muggeo's algorithm**: re-estimate the breakpoint given the current slopes, re-estimate the slopes given the new breakpoint, repeat to convergence — around the starting value. It is a local search rather than an exhaustive one, so the starting value needs to be in the right neighborhood rather than exact; here, roughly year 6 (`psu = 6`) into the twelve-year record, read off the plot above.
 
 ```{r}
 #| label: tn-segmented-fit
@@ -69,7 +69,7 @@ seg_tn <- segmented(lm_tn, seg.Z = ~year_frac, psi = 6)
 summary(seg_tn)
 ```
 
-The coefficient table above reports `Pr(>|t|)` as `NA` for the change-in-slope term, `U1.year_frac`. That's expected rather than missing. A standard $t$-test on a regression coefficient assumes the design matrix — the columns of regressor values `lm()` is fed — is fixed, known in advance, not something estimated from the same data the coefficient is fit on. Here it isn't fixed: `U1.year_frac`'s column is $(x_i - \hat c)_+$, built from the *estimated* breakpoint $\hat c$, so the regressor a reader would need held fixed to trust the usual $t$-distribution was itself derived from this dataset's outcomes.
+The coefficient table above reports `Pr(>|t|)` as `NA` for the change-in-slope term, `U1.year_frac`. That's expected rather than missing. A standard $t$-test on a regression coefficient assumes the design matrix — the columns of regressor values `lm()` is fed — is fixed, known in advance, not something estimated from the same data the coefficient is fit on. Here it isn't fixed: `U1.year_frac`'s column is $(x_i - \hat c)_+$, built from the estimated breakpoint $\hat c$, so the regressor a reader would need held fixed to trust the usual $t$-distribution was itself derived from this dataset's outcomes.
 
 That breaks the assumption the reference distribution relies on, so `segmented` reports `NA` rather than a number that would overstate precision. `confint()` and `slope()` below are the package's alternative — inference on the breakpoint and on each segment's slope that accounts for $\hat c$ being **estimated** rather than given.
 
@@ -85,7 +85,7 @@ confint(seg_tn)
 slope(seg_tn)
 ```
 
-The breakpoint is estimated at `year_frac` ≈ 5.9 (95% CI 5.18–6.61) — roughly 5.9 years into the twelve-year record. Before the break, there is *no detectable trend* over the first six years. After the break, the slope is *clearly positive* (95% CI 0.120–0.160, i.e., excluding zero); back-transformed, $(\exp(0.140) - 1) \times 100\% \approx 15\%$ per year.
+The breakpoint is estimated at `year_frac` ≈ 5.9 (95% CI 5.18–6.61) — roughly 5.9 years into the twelve-year record. Before the break, there is **no detectable trend** over the first six years. After the break, the slope is **clearly positive** (95% CI 0.120–0.160, i.e., excluding zero); back-transformed, $(\exp(0.140) - 1) \times 100\% \approx 15\%$ per year.
 
 `slope()`'s output reports a $t$-value but no p-value, for the same reason as the `NA` above — the reference distribution for that statistic isn't exact once the breakpoint is estimated rather than fixed. The confidence interval carries the same caveat but is what the package leads with, rather than a p-value that would look more precise than the estimation actually supports. It doesn't change the reading: the interval excludes zero for the post-break slope and includes it for the pre-break slope, the same conclusion a p-value would give.
 
