@@ -333,3 +333,9 @@ For a regulator asking "is this currently a problem," the record closes on the f
 ## Extending this analysis
 
 `s(year_frac)` alone is the single-predictor case; a GAM's real strength shows up once more than time is believed to drive the analyte. If a plausible confound exists — flow, a co-occurring pollutant, an upstream operational variable — the natural extension is a multi-predictor GAM, `s(year_frac) + s(flow)` or similar, which lets each smooth absorb its own share of the variation instead of forcing everything through a single time trend the way this chapter does. The same machinery generalizes to multiple monitoring sites too, via a `by`-factor smooth (`s(year_frac, by = site)`) that lets the fitted shape differ across sites while still sharing one model, rather than fitting each site's record separately the way this single-composite-site case study does.
+
+## References
+
+- UBC Master of Data Science, *DSCI 561: Regression I*.
+- UBC Master of Data Science, *DSCI 562: Regression II*. [Lecture 6: Local Regression](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture6_local_regression.html).
+- Wood, S.N. (2017). *Generalized Additive Models: An Introduction with R*, Second Edition. CRC Press.

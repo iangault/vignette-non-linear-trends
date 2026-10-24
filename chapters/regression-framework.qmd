@@ -162,3 +162,8 @@ The rest of this site works through methods in order of increasing flexibility, 
 **k-nearest-neighbors** and **LOESS** are the exception to this pattern: neither has a systematic component that's linear in any coefficients. That absence of inherited structure is exactly what makes them useful as a fully nonparametric baseline.
 
 [Transformations](transformations.qmd), next, covers the response-side and regressor-side tools available before reaching for any of them — and how to tell which one a given series actually needs.
+
+## References
+
+- UBC Master of Data Science, *DSCI 561: Regression I*.
+- UBC Master of Data Science, *DSCI 562: Regression II*. [Lecture 1: Link Functions and Count Regression](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture1-glm-link-functions-and-count-regression.html).

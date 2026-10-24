@@ -216,3 +216,8 @@ Unlike the piecewise-regression case, no slope was fit or needed on either side 
 ## Extending this analysis
 
 Locating the break statistically is only half of what a regulator or client actually wants — the next step is attribution: checking the estimated date (`year_frac` ≈ 7.16, roughly year 2020) against operational logs, permit modifications, or upstream discharge records to see what happened around then. Nothing in this analysis can supply that on its own; the break's confidence interval narrows where to look, not why it happened. If several analytes or several monitoring sites are believed to share a common cause, it's also worth testing whether the same breakpoint shows up in more than one series at once — `breakpoints()` fits each series independently here, but a shared-cause hypothesis is really a claim about a common changepoint across series, which calls for a joint test rather than eyeballing whether several independently-estimated dates happen to be close.
+
+## References
+
+- UBC Master of Data Science, *DSCI 561: Regression I*.
+- UBC Master of Data Science, *DSCI 562: Regression II*. [Course notes](https://ubc-mds.github.io/DSCI_562_regr-2/).

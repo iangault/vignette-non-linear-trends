@@ -169,3 +169,9 @@ LOESS is a genuinely useful tool for **prediction**, at the cost of the inferent
 LOESS reproduces the same rise-then-plateau shape as k-NN, more smoothly. The two methods aren't independent checks in a strong sense — both are local averages of the same observations. Their agreement supports a real feature of the data rather than an artifact of the averaging method.
 
 Neither fit supports a significance test on its own. But the shape they agree on looks like a logistic growth curve, a recognizable parametric family. Recognizing that is a judgment call rather than something either fit tests directly, and it's enough to justify committing to that form. [Post-Diagnosis: Committing to a Parametric Form](parametric-commitment.qmd), next, fits the logistic curve directly and recovers three interpretable numbers — a plateau level, an inflection point, and a transition speed — that neither LOESS nor k-NN could offer.
+
+## References
+
+- UBC Master of Data Science, *DSCI 561: Regression I*.
+- UBC Master of Data Science, *DSCI 562: Regression II*. [Lecture 6: Local Regression](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture6_local_regression.html).
+- UBC Master of Data Science, *DSCI 571: Supervised Learning I*.

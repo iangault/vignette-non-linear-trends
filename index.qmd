@@ -21,6 +21,10 @@ I work in environmental consulting, where a lot of trend analysis still defaults
 
 As recommended by USEPA ProUCL for temporal trends, common practice is to use log-transformed ordinary least squares (OLS) to assess linearity, which I've worked through in a synthetic exercise in a separate repository here: [github.com/iangault/vignette-temporal-trends](https://github.com/iangault/vignette-temporal-trends).
 
+The case studies use simulated data. I used Claude Code to help with drafting and code review, and reviewed and edited everything it produced.
+
+Much of the statistical framing here draws on UBC Master of Data Science coursework, particularly DSCI 561: Regression I, DSCI 562: Regression II, and DSCI 571: Supervised Learning I (see [References](#references)). The application to environmental monitoring is my own.
+
 ## Why nonlinear methods matter here
 
 Environmental data rarely behaves as neatly as the models used to describe it. A straight-line trend is a fine description when a concentration is genuinely rising or falling at a constant rate — but many real records don't look like that: a flat baseline that suddenly starts climbing, a level that jumps once and holds, a rise that levels off into a plateau, a seasonal cycle riding on top of a slower trend. Forcing a straight line onto any of these shapes produces a technically-fitted but practically misleading answer: it can make a plateaued analyte look like it's still climbing, or smear a one-time step change into what reads as a gradual trend.
@@ -137,6 +141,8 @@ ggplot(non_linear_wq |> order_analytes(), aes(date, result)) +
 
 ## References
 
-- UBC Master of Data Science, *DSCI 562: Regression II* — [Lecture 1: Link Functions and Count Regression](https://ubc-mds-2018-19.github.io/DSCI_562_regr-2/notes/lecture1-glm-link-functions-and-count-regression.html), [Lecture 6: Local Regression](https://ubc-mds-2018-19.github.io/DSCI_562_regr-2/notes/lecture6_local_regression.html)
+- UBC Master of Data Science, *DSCI 561: Regression I*.
+- UBC Master of Data Science, *DSCI 562: Regression II*. [Lecture 1: Link Functions and Count Regression](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture1-glm-link-functions-and-count-regression.html), [Lecture 6: Local Regression](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture6_local_regression.html).
+- UBC Master of Data Science, *DSCI 571: Supervised Learning I*. [Lecture 3: k-Nearest Neighbours and SVM RBFs](https://github.com/UBC-MDS/DSCI_571_sup-learn-1/blob/master/lectures/notes/03_kNNs-SVM-RBF.ipynb).
 - Singh, A. and Singh, A.K. (2015). *ProUCL Version 5.1 Technical Guide: Statistical Software for Environmental Applications for Data Sets with and without Nondetect Observations*. EPA/600/R-07/041. U.S. Environmental Protection Agency, Office of Research and Development.
 - Wood, S.N. (2017). *Generalized Additive Models: An Introduction with R*, Second Edition. CRC Press. Grounds the [GAM](chapters/gam.qmd) and [GAMM](chapters/gamm.qmd) chapters' effective-degrees-of-freedom, `lpmatrix`/prediction-variance, and AR(1)-correlated-residual methodology.

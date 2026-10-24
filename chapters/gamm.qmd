@@ -307,3 +307,9 @@ Stepping back, this is what getting the model's structure right buys: log(DO) ha
 This also remains a single-site model. Extending it to a monitoring network of several sites is where the other sense of "mixed" flagged above would apply: a random intercept per site, layered on top of the same trend and seasonal smooths, with the AR(1) correlation — if it held at every site — sitting alongside it in the same `lme()` call rather than replacing it.
 
 That pooled model is a heavier build: one more variance component, a correlation structure that has to be justified at every site rather than one, and a shared seasonal shape that may not hold everywhere. It earns its keep when individual sites have too short a record to estimate their own trend confidently and need to borrow strength from the rest of the network, or when the deliverable is a basin-wide statement rather than a single-site one. Otherwise, fitting this chapter's single-site GAMM once per site keeps each site's significance test about that site alone, and is simpler to build and explain to a client asking about their one location.
+
+## References
+
+- UBC Master of Data Science, *DSCI 561: Regression I*.
+- UBC Master of Data Science, *DSCI 562: Regression II*. [Lecture 4: Linear Mixed-Effects Models](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture4_linear_mixed_effects_models.html).
+- Wood, S.N. (2017). *Generalized Additive Models: An Introduction with R*, Second Edition. CRC Press.

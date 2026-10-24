@@ -207,3 +207,9 @@ That refinement isn't free, though — k-NN keeps a few things LOESS gives up in
 -   **Fewer moving parts.** One tuning parameter (`k`) versus LOESS's two (`span` and `degree`).
 -   **Cheaper to compute.** A neighborhood average versus a weighted least-squares fit solved fresh at every query point.
 -   **Bounded predictions.** Because $\hat y(x_0)$ is simply an average of observed responses in $N_k(x_0)$, it can never fall outside the range of those neighbors. LOESS's local line (or parabola) can overshoot past that range, particularly near the edges of the record where the neighbourhood is one-sided.
+
+## References
+
+- UBC Master of Data Science, *DSCI 561: Regression I*.
+- UBC Master of Data Science, *DSCI 562: Regression II*. [Lecture 6: Local Regression](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture6_local_regression.html).
+- UBC Master of Data Science, *DSCI 571: Supervised Learning I*. [Lecture 3: k-Nearest Neighbours and SVM RBFs](https://github.com/UBC-MDS/DSCI_571_sup-learn-1/blob/master/lectures/notes/03_kNNs-SVM-RBF.ipynb).

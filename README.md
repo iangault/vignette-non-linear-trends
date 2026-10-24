@@ -69,3 +69,7 @@ quarto render chapters/piecewise-regression.qmd
 ## Key packages
 
 `segmented` (piecewise regression), `strucchange` (changepoint detection), `mgcv` (GAM, GAMM), `nlme` (GAMM's AR(1) correlation structure, via `mgcv::gamm()`), `lmtest` (Breusch-Pagan) alongside base R's `shapiro.test()`; `caret` (planned, for k-NN); `dplyr`, `ggplot2`, `readr`, `knitr` (shared across pages).
+
+## AI assistance
+
+I used Claude Code to help with drafting and code review. I reviewed and edited everything it produced, and any errors are my own. Corrections and suggestions are welcome as GitHub issues.

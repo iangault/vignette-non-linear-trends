@@ -142,3 +142,8 @@ Neither control case rewards the extra flexibility a GAM offers, and the simple 
 ## When to reach for this check
 
 This chapter ran the lm-vs-GAM comparison on two analytes chosen in advance to explore `lm()`-vs-`gam()`-by-AIC comparison for any series where a plot leaves real doubt about whether a bend is genuine or just noise. It isn't a step every series needs: for most analytes, the raw plot already settles the question — a visibly straight trend or a visibly flat scatter doesn't need a fitted GAM to confirm what's apparent by eye. This chapter is for the narrower case where that visual judgment is genuinely unclear and a fitted comparison is worth the effort to settle it.
+
+## References
+
+- UBC Master of Data Science, *DSCI 561: Regression I*.
+- UBC Master of Data Science, *DSCI 562: Regression II*. [Course notes](https://ubc-mds.github.io/DSCI_562_regr-2/).

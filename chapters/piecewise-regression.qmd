@@ -155,3 +155,8 @@ Total Nitrogen was flat for roughly the first six years of the record and then b
 ## Extending this analysis
 
 This fit fully attributes Total Nitrogen's rise to time alone; a real trend analysis would typically check whether that rise tracks a hydrologic covariate instead — streamflow or precipitation, regressed out before testing for a residual trend — since a wet-weather-driven rise and a genuine loading increase call for different conclusions, and single-covariate time trends like this one can't distinguish them.
+
+## References
+
+- UBC Master of Data Science, *DSCI 561: Regression I*.
+- UBC Master of Data Science, *DSCI 562: Regression II*. [Course notes](https://ubc-mds.github.io/DSCI_562_regr-2/).

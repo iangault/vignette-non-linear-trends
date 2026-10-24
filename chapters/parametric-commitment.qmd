@@ -212,3 +212,8 @@ This isn't available for every series, though — [Generalized Additive Models](
 ## Extending this analysis
 
 The diagnostic failure here is the same additive-vs-multiplicative noise mismatch [described above](#where-this-sits-in-the-transformations-toolkit) — concentration data's variance naturally grows with its mean, meaning a Gaussian fit to the raw scale is the wrong noise model rather than evidence that the shape itself is wrong. The natural extension, laid out there, is a **generalized nonlinear model**: the same logistic mean function paired with a Gamma-like variance structure (`nlme::gnls()` with a power-of-the-mean variance function) in place of `nls()`'s implicit constant-variance Gaussian errors. That would let `Asym` keep its mg/L interpretability while giving the confidence intervals the calibration this chapter's diagnostics show they currently lack — the fully-corrected version of this fit, rather than the three-parameter-commitment-on-its-own-terms version this chapter deliberately stops at.
+
+## References
+
+- UBC Master of Data Science, *DSCI 561: Regression I*.
+- UBC Master of Data Science, *DSCI 562: Regression II*. [Lecture 6: Local Regression](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture6_local_regression.html).
