@@ -38,11 +38,12 @@ chapters/
   transformations.qmd                      # complete
   piecewise-regression.qmd                 # Total Nitrogen — complete
   changepoint-detection.qmd                # Specific Conductance — complete
-  knn-regression.qmd                       # scaffold
-  loess-smoothing.qmd                      # scaffold
+  knn-regression.qmd                       # Total Phosphorus — complete
+  loess-smoothing.qmd                      # Total Phosphorus — complete
+  parametric-commitment.qmd                # Total Phosphorus — complete
   gam.qmd                                  # Total Copper — complete
   gamm.qmd                                 # Dissolved Oxygen — complete
-  linear-vs-nonlinear-comparison.qmd       # scaffold
+  linear-vs-nonlinear-comparison.qmd       # Total Chloride, Total Zinc — complete
 R/
   utils.R                                  # shared palette/theme constants
   generate_synthetic_data.R                # builds data/synthetic/non_linear_wq.csv
@@ -68,7 +69,7 @@ quarto render chapters/piecewise-regression.qmd
 
 ## Key packages
 
-`segmented` (piecewise regression), `strucchange` (changepoint detection), `mgcv` (GAM, GAMM), `nlme` (GAMM's AR(1) correlation structure, via `mgcv::gamm()`), `lmtest` (Breusch-Pagan) alongside base R's `shapiro.test()`; `caret` (planned, for k-NN); `dplyr`, `ggplot2`, `readr`, `knitr` (shared across pages).
+`segmented` (piecewise regression), `strucchange` (changepoint detection), `mgcv` (GAM, GAMM), `nlme` (GAMM's AR(1) correlation structure, via `mgcv::gamm()`), `lmtest` (Breusch-Pagan) alongside base R's `shapiro.test()`; `caret` (k-NN); `dplyr`, `ggplot2`, `readr`, `knitr` (shared across pages).
 
 ## AI assistance
 
