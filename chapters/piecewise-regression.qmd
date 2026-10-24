@@ -44,7 +44,7 @@ A consequence: the hinge-term coefficient $\hat\beta$ comes out of the model in 
 ggplot(tn, aes(year_frac, log(result))) +
   geom_point(alpha = 0.5) +
   geom_smooth(se = FALSE) +
-  labs(title = "Total Nitrogen — log scale") +
+  labs(x = "Year", title = "Total Nitrogen — log scale") +
   nlt_theme
 ```
 
@@ -110,7 +110,7 @@ ggplot(tn, aes(year_frac, log(result))) +
     x = seg_tn$psi[, "Est."] + 0.2, y = max(log(tn$result)),
     label = slope2_label, hjust = 0, vjust = 1, size = 3.2
   ) +
-  labs(title = "Total Nitrogen — continuous piecewise fit (log scale)") +
+  labs(x = "Year", title = "Total Nitrogen — continuous piecewise fit (log scale)") +
   nlt_theme
 ```
 

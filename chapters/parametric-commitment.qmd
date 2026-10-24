@@ -181,7 +181,7 @@ compare_all_df <- grid |>
 ggplot() +
   geom_point(data = tp_wq, aes(year_frac, result), alpha = 0.3, color = "grey40") +
   geom_line(data = compare_all_df, aes(year_frac, fit, color = method), linewidth = 1) +
-  labs(title = "Total Phosphorus — logistic fit against LOESS and k-NN", y = "Phosphorus (mg/L)", color = NULL) +
+  labs(x = "Year", title = "Total Phosphorus — logistic fit against LOESS and k-NN", y = "Phosphorus (mg/L)", color = NULL) +
   nlt_theme +
   theme(legend.position = "right")
 ```

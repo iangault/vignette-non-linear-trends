@@ -32,7 +32,7 @@ ggplot(control_wq, aes(year_frac, result)) +
   geom_point(alpha = 0.5) +
   geom_smooth(se = FALSE) +
   facet_wrap(~analyte, scales = "free_y") +
-  labs(title = "Total Chloride and Total Zinc — raw scale", y = "Concentration") +
+  labs(x = "Year", title = "Total Chloride and Total Zinc — raw scale", y = "Concentration") +
   nlt_theme
 ```
 
@@ -108,7 +108,7 @@ ggplot() +
   geom_line(data = fit_grid, aes(year_frac, gam_fit, color = "GAM"), linewidth = 1, linetype = "dashed") +
   facet_wrap(~analyte, scales = "free_y") +
   scale_color_manual(values = c(Linear = "steelblue", GAM = "#A85751"), name = NULL) +
-  labs(title = "Total Chloride and Total Zinc — linear vs. GAM fit", y = "Concentration") +
+  labs(x = "Year", title = "Total Chloride and Total Zinc — linear vs. GAM fit", y = "Concentration") +
   nlt_theme +
   theme(legend.position = "right")
 ```

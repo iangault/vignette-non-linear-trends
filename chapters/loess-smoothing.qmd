@@ -45,7 +45,7 @@ LOESS fits a different local line at every target point, so `degree = 1` still p
 ggplot(tp_wq, aes(year_frac, result)) +
   geom_point(alpha = 0.5) +
   geom_smooth(se = FALSE) +
-  labs(title = "Total Phosphorus — raw scale", y = "Phosphorus (mg/L)") +
+  labs(x = "Year", title = "Total Phosphorus — raw scale", y = "Phosphorus (mg/L)") +
   nlt_theme
 ```
 
@@ -95,7 +95,7 @@ ggplot() +
   geom_ribbon(data = fit_curves, aes(year_frac, ymin = lower, ymax = upper), fill = "steelblue", alpha = 0.2) +
   geom_line(data = fit_curves, aes(year_frac, fit), color = "steelblue", linewidth = 0.8) +
   facet_grid(degree ~ span, labeller = label_both) +
-  labs(title = "Total Phosphorus — LOESS fits across span and degree", y = "Phosphorus (mg/L)") +
+  labs(x = "Year", title = "Total Phosphorus — LOESS fits across span and degree", y = "Phosphorus (mg/L)") +
   nlt_theme +
   theme(panel.spacing.x = unit(1, "lines"))
 ```
@@ -143,7 +143,7 @@ compare_df <- grid |>
 ggplot() +
   geom_point(data = tp_wq, aes(year_frac, result), alpha = 0.3, color = "grey40") +
   geom_line(data = compare_df, aes(year_frac, fit, color = method), linewidth = 1) +
-  labs(title = "Total Phosphorus — LOESS vs. k-NN", y = "Phosphorus (mg/L)", color = NULL) +
+  labs(x = "Year", title = "Total Phosphorus — LOESS vs. k-NN", y = "Phosphorus (mg/L)", color = NULL) +
   nlt_theme +
   theme(legend.position = "right")
 ```

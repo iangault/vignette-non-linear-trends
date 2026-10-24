@@ -93,7 +93,7 @@ The fitted smooth carries an edf and a significance test that answers a concrete
 ggplot(cu_wq, aes(year_frac, result)) +
   geom_point(alpha = 0.5) +
   geom_smooth(se = FALSE) +
-  labs(title = "Total Copper — raw scale", y = "Copper (µg/L)") +
+  labs(x = "Year", title = "Total Copper — raw scale", y = "Copper (µg/L)") +
   nlt_theme
 ```
 
@@ -189,7 +189,7 @@ ggplot() +
   geom_point(data = cu_wq, aes(year_frac, result), alpha = 0.4, color = "grey40") +
   geom_ribbon(data = grid, aes(year_frac, ymin = lower, ymax = upper), fill = "steelblue", alpha = 0.25) +
   geom_line(data = grid, aes(year_frac, fit), color = "steelblue", linewidth = 1) +
-  labs(title = "Total Copper — fitted GAM with 95% confidence band", y = "Copper (µg/L)") +
+  labs(x = "Year", title = "Total Copper — fitted GAM with 95% confidence band", y = "Copper (µg/L)") +
   nlt_theme
 ```
 
@@ -253,7 +253,7 @@ ggplot() +
     linewidth = 1.1
   ) +
   scale_color_manual(values = trend_colors, name = "local trend") +
-  labs(title = "Total Copper — fitted trajectory by significance of local slope", y = "Copper (µg/L)") +
+  labs(x = "Year", title = "Total Copper — fitted trajectory by significance of local slope", y = "Copper (µg/L)") +
   nlt_theme +
   theme(legend.position = "right")
 ```
@@ -298,7 +298,7 @@ cu_wq |>
   ggplot(aes(year_frac, resid)) +
   geom_point(alpha = 0.5) +
   geom_hline(yintercept = 0, linetype = "dashed") +
-  labs(title = "Total Copper GAM — residuals over time", y = "residual (log scale)") +
+  labs(x = "Year", title = "Total Copper GAM — residuals over time", y = "residual (log scale)") +
   nlt_theme
 ```
 

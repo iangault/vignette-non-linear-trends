@@ -36,7 +36,7 @@ This chapter works through an analyte, Dissolved Oxygen (DO), whose residuals do
 ggplot(do_wq, aes(year_frac, result)) +
   geom_point(alpha = 0.5) +
   geom_smooth(se = FALSE) +
-  labs(title = "Dissolved Oxygen — raw scale", y = "DO (mg/L)") +
+  labs(x = "Year", title = "Dissolved Oxygen — raw scale", y = "DO (mg/L)") +
   nlt_theme
 ```
 

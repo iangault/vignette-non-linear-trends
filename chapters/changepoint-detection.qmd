@@ -57,7 +57,7 @@ The situation this method is built for is a suspected step change with an unreco
 ggplot(cond, aes(year_frac, log(result))) +
   geom_point(alpha = 0.5) +
   geom_smooth(se = FALSE) +
-  labs(title = "Specific Conductance — log scale") +
+  labs(x = "Year", title = "Specific Conductance — log scale") +
   nlt_theme
 ```
 
@@ -173,7 +173,7 @@ ggplot(cond, aes(year_frac, log(result))) +
     label = sprintf("Break = %.2f yr, Jump = %.1f%%", brk_year, pct_jump),
     hjust = 0, vjust = 1, size = 3.6
   ) +
-  labs(title = "Specific Conductance — mean-shift fit (log scale)") +
+  labs(x = "Year", title = "Specific Conductance — mean-shift fit (log scale)") +
   nlt_theme
 ```
 

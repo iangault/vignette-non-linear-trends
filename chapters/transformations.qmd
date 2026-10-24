@@ -36,7 +36,7 @@ ggplot(tn_raw, aes(year_frac, result)) +
   geom_point(alpha = 0.5) +
   geom_smooth(method = "lm", se = FALSE) +
   labs(title = "Total Nitrogen — a straight line forced through a break in level",
-       x = "year", y = "result") +
+       x = "Year", y = "result") +
   nlt_theme
 ```
 
@@ -82,13 +82,13 @@ exp_demo <- tibble(year_frac = seq(0, 12, length.out = 60)) |>
 p_raw <- ggplot(exp_demo, aes(year_frac, result)) +
   geom_point(alpha = 0.5) +
   geom_smooth(method = "lm", se = FALSE) +
-  labs(title = "Raw scale", x = "year", y = "result") +
+  labs(title = "Raw scale", x = "Year", y = "result") +
   nlt_theme
 
 p_log <- ggplot(exp_demo, aes(year_frac, log(result))) +
   geom_point(alpha = 0.5) +
   geom_smooth(method = "lm", se = FALSE) +
-  labs(title = "Log scale", x = "year", y = "log(result)") +
+  labs(title = "Log scale", x = "Year", y = "log(result)") +
   nlt_theme
 
 p_raw + p_log +
@@ -227,7 +227,7 @@ ggplot(mock_gamma, aes(year_frac, result)) +
   geom_line(aes(y = fit_naive, color = "log-OLS, naive back-transform")) +
   geom_line(aes(y = fit_glm, color = "Gamma GLM, log link")) +
   labs(title = "Mock series, Gamma noise — fitted mean, raw concentration scale",
-       x = "year", y = "result", color = NULL) +
+       x = "Year", y = "result", color = NULL) +
   nlt_theme +
   theme(legend.position = "bottom")
 ```

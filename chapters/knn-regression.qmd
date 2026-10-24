@@ -94,7 +94,7 @@ Concentration data is modeled on the log scale throughout this site for the reas
 ggplot(tp_wq, aes(year_frac, result)) +
   geom_point(alpha = 0.5) +
   geom_smooth(se = FALSE) +
-  labs(title = "Total Phosphorus — raw scale", y = "Phosphorus (mg/L)") +
+  labs(x = "Year", title = "Total Phosphorus — raw scale", y = "Phosphorus (mg/L)") +
   nlt_theme
 ```
 
@@ -128,7 +128,7 @@ sweep_df <- bind_rows(sweep_fits)
 ggplot() +
   geom_point(data = tp_wq, aes(year_frac, result), alpha = 0.35, color = "grey40") +
   geom_line(data = sweep_df, aes(year_frac, fit, color = k), linewidth = 1) +
-  labs(title = "Total Phosphorus — k-NN fit at three values of k", y = "Phosphorus (mg/L)", color = "k") +
+  labs(x = "Year", title = "Total Phosphorus — k-NN fit at three values of k", y = "Phosphorus (mg/L)", color = "k") +
   nlt_theme +
   theme(legend.position = "right")
 ```
@@ -184,7 +184,7 @@ grid <- grid |> mutate(fit = exp(predict(fit_tp, newdata = grid)))
 ggplot() +
   geom_point(data = tp_wq, aes(year_frac, result), alpha = 0.4, color = "grey40") +
   geom_line(data = grid, aes(year_frac, fit), color = "steelblue", linewidth = 1) +
-  labs(title = sprintf("Total Phosphorus — k-NN fit (k = %d)", best_k), y = "Phosphorus (mg/L)") +
+  labs(x = "Year", title = sprintf("Total Phosphorus — k-NN fit (k = %d)", best_k), y = "Phosphorus (mg/L)") +
   nlt_theme
 ```
 
