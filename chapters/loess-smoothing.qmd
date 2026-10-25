@@ -162,13 +162,13 @@ The confidence bands two sections above show that a **pointwise** standard error
 There's no one global coefficient — no single number for "the trend" — so there's nothing for a global standard error or significance test to attach to. `loess()` doesn't return an object structured to support one the way `lm()` or `mgcv::gam()` do, and that's a structural consequence of the method.
 :::
 
-LOESS is a genuinely useful tool for **prediction**, at the cost of the inferential interpretability a parametric or semi-parametric model provides. Its role in this progression is to establish the shape clearly enough that, if a recognizable family fits, the next chapter can commit to it and recover that inferential machinery directly.
+LOESS is a genuinely useful tool for **prediction**, at the cost of the inferential interpretability a parametric or semi-parametric model provides. Its role in this progression is to establish the shape clearly. Attaching a significance test to that shape is the job of [Generalized Additive Models](gam.qmd), next.
 
 ## Interpretation
 
 LOESS reproduces the same rise-then-plateau shape as k-NN, more smoothly. The two methods aren't independent checks in a strong sense — both are local averages of the same observations. Their agreement supports a real feature of the data rather than an artifact of the averaging method.
 
-Neither fit supports a significance test on its own. But the shape they agree on looks like a logistic growth curve, a recognizable parametric family. Recognizing that is a judgment call rather than something either fit tests directly, and it's enough to justify committing to that form. [Post-Diagnosis: Committing to a Parametric Form](parametric-commitment.qmd), next, fits the logistic curve directly and recovers three interpretable numbers — a plateau level, an inflection point, and a transition speed — that neither LOESS nor k-NN could offer.
+Neither fit supports a significance test on its own. [Generalized Additive Models](gam.qmd), next, keeps a data-driven curve like this one but adds a fitted smoothing penalty and a significance test on the smooth term, which is what turns a shape seen on a plot into a testable claim.
 
 ## References
 
