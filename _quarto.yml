@@ -10,6 +10,7 @@ project:
     - chapters/knn-regression.qmd
     - chapters/loess-smoothing.qmd
     - chapters/gam.qmd
+    - chapters/mechanism-vs-shape.qmd
     - chapters/gamm.qmd
     - chapters/linear-vs-nonlinear-comparison.qmd
 
@@ -53,11 +54,13 @@ website:
         contents:
           - text: "7. Generalized Additive Models"
             href: chapters/gam.qmd
-          - text: "8. Generalized Additive Mixed Models"
+          - text: "8. Mechanism vs. Shape"
+            href: chapters/mechanism-vs-shape.qmd
+          - text: "9. Generalized Additive Mixed Models"
             href: chapters/gamm.qmd
       - section: "Comparison"
         contents:
-          - text: "9. Linear vs. Nonlinear Comparison"
+          - text: "10. Linear vs. Nonlinear Comparison"
             href: chapters/linear-vs-nonlinear-comparison.qmd
 
 knitr:

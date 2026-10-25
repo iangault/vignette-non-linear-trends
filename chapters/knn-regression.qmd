@@ -194,7 +194,7 @@ k-NN recovers the rise-and-plateau shape using only a neighborhood-averaging rul
 
 The next chapter fits [LOESS](loess-smoothing.qmd) to the same data with a different local-averaging mechanic — a weighted local regression in place of a flat neighborhood average.
 
-The two methods aren't independent in a strong sense, since both are smoothing the same observations; where their curves agree, what that mainly rules out is the shape being an artifact of k-NN's particular averaging rule rather than a real feature of the record. Agreement between the two supports the shape being real; it doesn't supply a significance test for it, which is the gap [Generalized Additive Models](gam.qmd) fills.
+The two methods aren't independent in a strong sense, since both are smoothing the same observations; where their curves agree, what that mainly rules out is the shape being an artifact of k-NN's particular averaging rule rather than a real feature of the record. Agreement between the two supports the shape being real; it doesn't supply a significance test for it, which is the gap [Generalized Additive Models](gam.qmd) fills, applied to this record in [Mechanism vs. Shape](mechanism-vs-shape.qmd).
 
 ## Extending this analysis
 

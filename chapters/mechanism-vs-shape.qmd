@@ -1,0 +1,323 @@
+---
+title: "Mechanism vs. Shape"
+subtitle: "When a parametric curve is justified, and how to report a shape when it isn't"
+---
+
+```{r}
+#| label: setup
+#| include: false
+library(dplyr)
+library(ggplot2)
+library(mgcv)
+library(lmtest)
+library(tidyr)
+source("R/utils.R")
+non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_types = FALSE)
+tp_wq <- non_linear_wq |> filter(analyte == "Total Phosphorus")
+```
+
+## Where a curve's form comes from
+
+Every parametric model makes a claim about how the data was produced. In the terms of [The Regression Framework](regression-framework.qmd), that claim can sit in the random component (what kind of noise, and how its variance relates to the mean) or in the systematic component (what shape the mean follows over time). Either one is on firm ground when it comes from a known process, and on weak ground when it comes only from how a plot looks.
+
+The table below lists a few processes that do imply a specific model. In each row, the fitted parameter is a property of the process itself, which is what makes it worth reporting on its own.
+
+| Process | What it implies about the data | Model | What the parameter means |
+|---|---|---|---|
+| Independent events occurring at some rate | Non-negative counts; variance equal to the mean; changes in rate act multiplicatively | Poisson GLM, log link | Rate ratio per unit time |
+| A fixed fraction lost per unit time (first-order decay) | Exponential decline, which is a straight line on the log scale | OLS on $\log(C)$ | Rate constant $k$; half-life $\ln 2 / k$ |
+| Growth limited by a fixed capacity | An S-shaped rise that levels off at a ceiling | Logistic curve | Carrying capacity; inflection time |
+| Binding onto a finite number of sorption sites | Uptake that saturates as sites fill | Langmuir isotherm | Sorption capacity; affinity |
+
+: Processes that imply a specific model form {tbl-colwidths="[24,30,18,28]"}
+
+A mechanism does more than pick the curve. It also predicts things about the data beyond the curve's shape: equal mean and variance for Poisson counts, a straight line on the log scale for first-order decay. Those predictions can be checked, which gives the analyst a way to find out whether the mechanism holds for the record in hand. A curve chosen because it resembles the data makes no such prediction, so nothing can confirm or rule it out.
+
+The first two rows of the table are worked below on simulated data, generated inline so the mechanism behind each one is visible in the code. Total Phosphorus then serves as the counter-case: a record whose shape resembles the third row, with no mechanism behind it to justify that model.
+
+## Counts: independent events at a changing rate
+
+Consider the monthly count of overflow incidents reported at a treatment facility over twelve years, during which a maintenance program reduces the incident rate by a roughly constant proportion each year. If incidents occur independently of one another, the count in any month follows a Poisson distribution, and a constant proportional decline means the logarithm of the rate falls linearly in time:
+
+$$Y_t \sim \mathrm{Poisson}(\lambda_t), \qquad \log(\lambda_t) = \beta_0 + \beta_1 t.$$
+
+Both parts of that model come from the mechanism. Independence gives the Poisson random component, and a proportional change in rate gives the log link (DSCI 562, Lecture 1).
+
+```{r}
+#| label: counts-data
+set.seed(42)
+# incidents occur independently; the rate starts at 4 per month and falls by a fixed proportion each year
+counts <- data.frame(year_frac = (0:143) / 12) |>
+  mutate(events = rpois(n(), lambda = 4 * exp(-0.25 * year_frac)))
+
+fit_counts_ols <- lm(events ~ year_frac, data = counts)
+fit_counts_pois <- glm(events ~ year_frac, family = poisson, data = counts)
+summary(fit_counts_pois)$coefficients
+```
+
+```{r}
+#| label: counts-plot
+count_grid <- data.frame(year_frac = seq(0, max(counts$year_frac), length.out = 200))
+count_grid <- count_grid |>
+  mutate(
+    OLS = predict(fit_counts_ols, newdata = count_grid),
+    Poisson = predict(fit_counts_pois, newdata = count_grid, type = "response")
+  ) |>
+  pivot_longer(c(OLS, Poisson), names_to = "model", values_to = "fit")
+
+ggplot() +
+  geom_jitter(data = counts, aes(year_frac, events), width = 0, height = 0.1, alpha = 0.4, color = "grey40") +
+  geom_line(data = count_grid, aes(year_frac, fit, color = model), linewidth = 1) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(x = "Year", y = "Incidents per month", title = "Monthly incident counts: OLS vs. Poisson GLM", color = NULL) +
+  nlt_theme +
+  theme(legend.position = "right")
+```
+
+The two standard alternatives both fail on this record for reasons the mechanism predicts. A straight line through the raw counts reaches `r round(predict(fit_counts_ols, newdata = data.frame(year_frac = max(counts$year_frac))), 2)` incidents per month by the end of the record, a negative count, because nothing in OLS keeps the mean above zero. Log-transforming the response first is not available either: `r sum(counts$events == 0)` of the `r nrow(counts)` months recorded zero incidents, and $\log(0)$ is undefined. The Poisson GLM avoids both problems, since the log link keeps the fitted rate positive and the model is defined for zero counts.
+
+```{r}
+#| label: counts-rate-ratio
+rate_ratio <- exp(coef(fit_counts_pois)[["year_frac"]])
+rate_ratio_ci <- exp(suppressMessages(confint(fit_counts_pois))["year_frac", ])
+# Pearson dispersion: near 1 if the variance equals the mean, as the Poisson mechanism predicts
+dispersion <- sum(residuals(fit_counts_pois, type = "pearson")^2) / df.residual(fit_counts_pois)
+c(rate_ratio = rate_ratio, rate_ratio_ci, dispersion = dispersion)
+```
+
+Exponentiating the slope gives a rate ratio of `r round(rate_ratio, 3)` per year (95% CI `r round(rate_ratio_ci[1], 3)`–`r round(rate_ratio_ci[2], 3)`): the incident rate falls by about `r round(100 * (1 - rate_ratio))`% each year. That number is a property of the process (how fast the maintenance program is reducing incidents), and it can be reported directly.
+
+The mechanism's own prediction checks out as well. A Poisson count has variance equal to its mean, and the Pearson dispersion statistic, which is close to 1 when that holds, comes out at `r round(dispersion, 2)`. If incidents clustered instead, for example several overflows during a single storm, the variance would exceed the mean (**overdispersion**), the dispersion statistic would sit well above 1, and the Poisson standard errors would be too narrow. The usual next step in that case is a negative binomial model, which relaxes the equal-variance assumption while keeping the log link (DSCI 562, Lecture 1). Failing the check here would mean the mechanism was wrong, not just that the fit was imprecise.
+
+## First-order decay after source removal
+
+The second row of the table is one environmental consultants work with directly. After a contaminant source is removed or isolated, concentrations at a monitoring well often decline by a roughly constant fraction per unit time. That is first-order decay:
+
+$$C(t) = C_0 \, e^{-k t} \quad\Longleftrightarrow\quad \log C(t) = \log C_0 - k\,t.$$
+
+The right-hand form is a straight line in time on the log scale. Fitting it means running OLS on $\log(C)$ against time, the same log-transform-then-OLS approach recommended in USEPA ProUCL for temporal trends, and the slope's magnitude is the **point decay rate constant** $k_{\text{point}}$. US EPA guidance on monitored natural attenuation defines $k_{\text{point}}$ in these terms, as the slope of the natural log of concentration against time at a single monitoring location, and uses it to estimate how long that location will take to reach a remediation goal (Newell et al., 2002).
+
+### Why a mechanism is justified here
+
+A groundwater plume is affected by many processes: biodegradation, sorption, dispersion, dilution, seasonal water-table changes, and whatever remains of the source. That is no fewer influences than a surface-water phosphorus record. What makes a single-curve model defensible here is a set of conditions specific to the period after source removal:
+
+1. **A known event sets the start of the clock.** The record is analyzed from the date the source was removed, not from an arbitrary point.
+2. **One kind of process dominates.** With no new mass entering, concentrations at the well are governed mainly by losses.
+3. **The losses combine into one rate.** At low concentrations, each of those loss processes acts roughly in proportion to the concentration present, and a sum of first-order losses is itself first-order. The fitted $k$ is openly a lumped rate, not a biodegradation rate; Newell et al. (2002) state that $k_{\text{point}}$ mostly reflects how quickly the source is being depleted and caution against using it as a biodegradation rate in transport models.
+4. **The parameter answers the decision question.** The question a regulator asks is how long until the well meets its cleanup standard, and $k$ answers it directly.
+5. **The mechanism makes a checkable prediction.** First-order decay predicts a straight line on the log scale, which can be tested against the record.
+
+```{r}
+#| label: plume-data
+set.seed(7)
+# quarterly sampling for 10 years after source removal; first-order decay with multiplicative noise
+plume <- data.frame(years_since_removal = seq(0, 10, by = 0.25)) |>
+  mutate(conc = 1200 * exp(-0.3 * years_since_removal) * exp(rnorm(n(), sd = 0.3)))
+
+fit_plume <- lm(log(conc) ~ years_since_removal, data = plume)
+summary(fit_plume)$coefficients
+```
+
+```{r}
+#| label: plume-rate
+k_point <- -coef(fit_plume)[["years_since_removal"]]
+k_ci <- -rev(confint(fit_plume)["years_since_removal", ])
+half_life <- log(2) / k_point
+c(k_point = k_point, k_ci, half_life = half_life)
+```
+
+The fitted point decay rate is $k_{\text{point}}$ = `r round(k_point, 3)` per year (95% CI `r round(k_ci[1], 3)`–`r round(k_ci[2], 3)`), corresponding to a half-life of about `r round(half_life, 1)` years. Newell et al. (2002) recommend reporting a confidence interval on the slope in this way, rather than judging the regression by its $R^2$, because a confidence interval reflects both the chosen confidence level and the number of samples behind the estimate.
+
+### Checking the mechanism's prediction
+
+If decay is first-order, the log-scale record should show no curvature that a straight line misses. Two checks address that directly: Ramsey's RESET test, which asks whether adding powers of the fitted values improves the linear fit, and a GAM on the same log-scale response, which is free to bend if the data supports it.
+
+```{r}
+#| label: plume-linearity-check
+resettest(fit_plume)
+fit_plume_gam <- gam(log(conc) ~ s(years_since_removal), data = plume, method = "REML")
+c(gam_edf = sum(fit_plume_gam$edf) - 1, AIC_lm = AIC(fit_plume), AIC_gam = AIC(fit_plume_gam))
+```
+
+RESET finds no significant curvature ($p$ = `r round(resettest(fit_plume)$p.value, 2)`), and the GAM, given the freedom to bend, does not improve on the straight line: its AIC (`r round(AIC(fit_plume_gam), 1)`) is no lower than the linear fit's (`r round(AIC(fit_plume), 1)`). The record is consistent with first-order decay.
+
+The same check is what would flag the mechanism failing. Decline at real sites often slows over time, for example when contaminant stored in low-permeability material diffuses back out, or rebounds when a residual source was not fully removed. Either pattern bends the log-scale record away from a straight line, RESET and the GAM would pick it up, and a single $k$ would then overstate how quickly the well will clean up. Newell et al. (2002) note that most sites with organic contamination retain some residual source even after active remediation, which makes this check a necessary step rather than a formality.
+
+### Time to reach a cleanup goal
+
+```{r}
+#| label: plume-time-to-goal
+cleanup_goal <- 5  # µg/L
+time_to_goal <- (coef(fit_plume)[[1]] - log(cleanup_goal)) / k_point
+
+# range from where the 95% confidence band on the fitted line crosses the goal
+proj <- data.frame(years_since_removal = seq(0, 30, by = 0.01))
+band <- predict(fit_plume, newdata = proj, interval = "confidence")
+time_to_goal_range <- c(
+  proj$years_since_removal[which(band[, "lwr"] <= log(cleanup_goal))[1]],
+  proj$years_since_removal[which(band[, "upr"] <= log(cleanup_goal))[1]]
+)
+c(time_to_goal = time_to_goal, time_to_goal_range)
+```
+
+```{r}
+#| label: plume-plot
+proj_df <- proj |>
+  mutate(fit = exp(band[, "fit"]), lwr = exp(band[, "lwr"]), upr = exp(band[, "upr"]),
+         observed_range = years_since_removal <= max(plume$years_since_removal))
+
+ggplot() +
+  geom_ribbon(data = proj_df, aes(years_since_removal, ymin = lwr, ymax = upr), fill = "steelblue", alpha = 0.2) +
+  geom_line(data = proj_df, aes(years_since_removal, fit, linetype = observed_range), color = "steelblue", linewidth = 1) +
+  geom_point(data = plume, aes(years_since_removal, conc), alpha = 0.6, color = "grey30") +
+  geom_hline(yintercept = cleanup_goal, linetype = "dotted", color = "#C62828") +
+  scale_y_log10() +
+  scale_linetype_manual(values = c(`TRUE` = "solid", `FALSE` = "dashed"), labels = c(`TRUE` = "within record", `FALSE` = "projected"), name = NULL) +
+  labs(x = "Years since source removal", y = "Concentration (µg/L, log scale)",
+       title = "First-order decay at a single well, projected to a 5 µg/L cleanup goal") +
+  nlt_theme +
+  theme(legend.position = "right")
+```
+
+At the fitted rate, the well reaches a 5 µg/L goal about `r round(time_to_goal, 1)` years after source removal, with the 95% confidence band on the fitted line crossing the goal between `r round(time_to_goal_range[1], 1)` and `r round(time_to_goal_range[2], 1)` years. That range covers uncertainty in the fitted line only; it does not cover the possibility that the decline slows later, which is a question about the mechanism, not the fit.
+
+This is a projection beyond the observed record, which the rest of this site does not attempt. The difference is the mechanism. A GAM or LOESS curve describes the record it was fit to and says nothing about what comes after it. A first-order rate constant, under the conditions listed above, describes a process that continues past the last sample, and that is the only basis for extending the line. The projection holds only as long as those conditions do, which is why the time-to-goal estimate should be revisited as new monitoring data arrives rather than treated as fixed.
+
+## Total Phosphorus: a shape without a mechanism
+
+The Total Phosphorus record from [k-Nearest Neighbors](knn-regression.qmd) and [LOESS](loess-smoothing.qmd) rises through the middle years and then levels off, a shape that resembles the logistic row of the table above. Resemblance is not a mechanism, though, and several other curves produce the same general shape while implying different stories about what happened:
+
+- **Logistic**: a symmetric S-curve, the shape of growth toward a fixed capacity.
+- **Gompertz**: an asymmetric S-curve that approaches its ceiling more slowly than it left its floor.
+- **Ramp between two dates**: flat, then a straight-line rise, then flat again. This is the shape a change would produce if it began on one date and was complete by another, such as land-use change phased in over several years. It is a piecewise linear model with two knots, the same structure as [Piecewise Regression](piecewise-regression.qmd) with one more breakpoint.
+
+Each is fit below to `log(result)`, with a lower and an upper level, so all three are compared on the same footing.
+
+```{r}
+#| label: tp-family-fits
+fit_logistic <- nls(log(result) ~ SSfpl(year_frac, floor, ceiling, mid, scal), data = tp_wq)
+fit_gompertz <- nls(log(result) ~ floor + (ceiling - floor) * exp(-exp(-(year_frac - mid) / scal)),
+                    data = tp_wq, start = list(floor = -3.9, ceiling = -2.5, mid = 4, scal = 1.5))
+fit_ramp <- nls(log(result) ~ floor + (ceiling - floor) * pmin(pmax((year_frac - start) / (end - start), 0), 1),
+                data = tp_wq, start = list(floor = -3.9, ceiling = -2.5, start = 2, end = 8))
+
+family_fits <- list(Logistic = fit_logistic, Gompertz = fit_gompertz, `Two-date ramp` = fit_ramp)
+tp_grid <- data.frame(year_frac = seq(min(tp_wq$year_frac), max(tp_wq$year_frac), length.out = 300))
+
+summarize_family <- function(fit) {
+  pred <- predict(fit, newdata = tp_grid)
+  lo <- min(pred); hi <- max(pred)
+  data.frame(
+    AIC = AIC(fit),
+    floor_mg_L = exp(lo),
+    ceiling_mg_L = exp(hi),
+    # year at which the curve has covered half its rise, a quantity every family can report
+    half_rise_year = tp_grid$year_frac[which.min(abs(pred - (lo + hi) / 2))]
+  )
+}
+
+family_table <- bind_rows(lapply(family_fits, summarize_family), .id = "family")
+family_table
+```
+
+```{r}
+#| label: tp-family-plot
+family_curves <- bind_rows(lapply(family_fits, function(fit) {
+  data.frame(year_frac = tp_grid$year_frac, fit = exp(predict(fit, newdata = tp_grid)))
+}), .id = "family")
+
+ggplot() +
+  geom_point(data = tp_wq, aes(year_frac, result), alpha = 0.3, color = "grey40") +
+  geom_line(data = family_curves, aes(year_frac, fit, color = family), linewidth = 1) +
+  labs(x = "Year", y = "Phosphorus (mg/L)", title = "Total Phosphorus: three curve families, three different stories", color = NULL) +
+  nlt_theme +
+  theme(legend.position = "right")
+```
+
+The logistic curve and the two-date ramp fit about equally well: their AICs differ by `r round(abs(family_table$AIC[1] - family_table$AIC[3]), 1)` units, well inside the range where AIC does not separate two models. The Gompertz curve fits somewhat worse, `r round(family_table$AIC[2] - min(family_table$AIC), 1)` units above the lowest, but its curve still overlaps the other two across most of the record. All three agree closely on the quantities that describe the record: a floor near `r round(mean(family_table$floor_mg_L), 3)` mg/L, a ceiling near `r round(mean(family_table$ceiling_mg_L), 3)` mg/L, and a midpoint of the rise around year `r round(mean(family_table$half_rise_year), 1)`. They disagree on what produced that rise. The two best-fitting curves tell different stories, steady growth toward a capacity versus a change that started and ended on two specific dates, and the data cannot tell them apart.
+
+That is the general situation for a surface-water monitoring record. Phosphorus at a sampling point reflects loading from the surrounding land, flow and dilution, release from bed sediments, biological uptake, and sampling and laboratory variation, all acting at once and none isolated by the monitoring design. No single process dominates in the way losses dominate after a source is removed, so a parametric curve's parameters (a "carrying capacity", an "inflection time", a pair of ramp dates) would report a mechanism nobody established. The descriptive quantities the three families agree on are worth reporting; the parameters that distinguish them are not.
+
+## Reporting the shape without committing to a family
+
+A [GAM](gam.qmd) recovers those descriptive quantities directly, without choosing among the families above. The fit below uses the same approach as the Total Copper case study: a smooth on `log(result)`, followed by the local slope and its confidence interval at each point along the record, to classify each stretch as rising, falling, or flat.
+
+```{r}
+#| label: tp-gam-fit
+fit_tp_gam <- gam(log(result) ~ s(year_frac, bs = "tp", k = 20), data = tp_wq, method = "REML")
+summary(fit_tp_gam)$s.table
+```
+
+```{r}
+#| label: tp-gam-derivative
+h <- 1e-3
+# same finite-difference local slope as the GAM chapter, on the TP grid
+Xp_plus  <- predict(fit_tp_gam, newdata = data.frame(year_frac = tp_grid$year_frac + h), type = "lpmatrix")
+Xp_minus <- predict(fit_tp_gam, newdata = data.frame(year_frac = tp_grid$year_frac - h), type = "lpmatrix")
+D <- (Xp_plus - Xp_minus) / (2 * h)
+deriv <- as.numeric(D %*% coef(fit_tp_gam))
+se <- sqrt(rowSums((D %*% vcov(fit_tp_gam)) * D))
+
+pred <- predict(fit_tp_gam, newdata = tp_grid, se.fit = TRUE)
+tp_grid <- tp_grid |>
+  mutate(
+    fit = exp(pred$fit),
+    trend = case_when(
+      deriv - 1.96 * se > 0 ~ "rising",
+      deriv + 1.96 * se < 0 ~ "falling",
+      TRUE ~ "flat"
+    )
+  )
+
+rising <- tp_grid |> filter(trend == "rising")
+end_pred <- predict(fit_tp_gam, newdata = data.frame(year_frac = max(tp_wq$year_frac)), se.fit = TRUE)
+end_level <- exp(as.numeric(end_pred$fit) + c(fit = 0, lower = -1.96, upper = 1.96) * as.numeric(end_pred$se.fit))
+c(rise_start = min(rising$year_frac), rise_end = max(rising$year_frac), end_level)
+```
+
+```{r}
+#| label: tp-gam-derivative-plot
+tp_seg <- tp_grid |>
+  mutate(year_frac_end = lead(year_frac), fit_end = lead(fit)) |>
+  filter(!is.na(year_frac_end))
+
+trend_colors <- c(rising = "#2E7D32", falling = "#C62828", flat = "grey55")
+
+ggplot() +
+  geom_point(data = tp_wq, aes(year_frac, result), alpha = 0.35, color = "grey40") +
+  geom_segment(data = tp_seg, aes(x = year_frac, y = fit, xend = year_frac_end, yend = fit_end, color = trend), linewidth = 1.1) +
+  scale_color_manual(values = trend_colors, name = "local trend") +
+  labs(x = "Year", y = "Phosphorus (mg/L)", title = "Total Phosphorus: fitted trajectory by significance of local slope") +
+  nlt_theme +
+  theme(legend.position = "right")
+```
+
+The smooth term is strongly significant (edf `r round(summary(fit_tp_gam)$s.table[1, "edf"], 1)`), so the record departs from flat with a curved shape a straight line would miss. The local slope is distinguishable from zero from about year `r round(min(rising$year_frac), 1)` to year `r round(max(rising$year_frac), 1)`, and from then to the end of the record no further change is detectable. At the end of the record the fitted level is `r round(end_level[["fit"]], 3)` mg/L (95% CI `r round(end_level[["lower"]], 3)`–`r round(end_level[["upper"]], 3)`).
+
+Those three statements are the ones a client or regulator needs: when the rise happened, that it has stopped within the precision of the data, and the current level with its uncertainty. They are also the quantities the three parametric families agreed on, obtained here without claiming any of their mechanisms. "Flat" in this classification means the slope cannot be distinguished from zero, not that it is shown to be exactly zero, and the interval at each point is pointwise, so the start and end years of the rise are approximate.
+
+If a specific event is suspected behind the rise, such as a permit change or a new upstream discharge on a known date, that is a hypothesis about a mechanism and can be tested as one: [Piecewise Regression](piecewise-regression.qmd) for a change in slope at a hypothesized date, or [Changepoint Detection](changepoint-detection.qmd) to see whether the data independently locates a break near it.
+
+## When a parametric curve is justified
+
+The two simulated cases and Total Phosphorus differ in a few specific ways, and those differences work as a checklist before committing to any parametric curve for a monitoring record:
+
+1. **Is there a known event or starting point?** Source removal sets the clock for a decay curve. Without one, the curve's timing parameters are fitted to the shape alone.
+2. **Does one process, or one kind of process, dominate?** Losses after source removal, or independent incidents at a rate. Many overlapping influences of comparable size point away from a single curve.
+3. **Does the parameter answer the decision question?** A rate constant gives a time to cleanup; a rate ratio gives a yearly change in incidents. A parameter that answers no question is a description of the curve, not of the system.
+4. **Does the mechanism predict something checkable, and does the record pass?** Equal mean and variance for counts; a straight line on the log scale for first-order decay. If the check fails, the mechanism does not hold for this record, however well the curve tracks the points.
+
+When all four hold, a parametric model is the stronger choice: its parameters can be reported, compared across sites, and, within the mechanism's limits, projected forward. When they do not, a GAM's description of the record (when it changed, whether it is still changing, where it stands now) is the more defensible report.
+
+## Interpretation
+
+A parametric curve's value comes from the process behind it, not from how closely it follows the data. The overflow counts and the post-removal plume each had a process that set the model's form, produced a parameter with a physical meaning, and predicted something checkable that the record passed. Total Phosphorus had a shape that two quite different curves fit about equally well, each implying a different process, with nothing in the record able to choose between them. For that record, the GAM reports what is supported (a rise between roughly years `r round(min(rising$year_frac))` and `r round(max(rising$year_frac))`, no detectable change since, and a current level with a confidence interval) without attributing it to a mechanism that was never established.
+
+[Generalized Additive Mixed Models](gamm.qmd), next, returns to GAMs and checks whether their significance tests can be trusted when residuals are correlated from one sample to the next.
+
+## References
+
+- UBC Master of Data Science, *DSCI 562: Regression II*. [Lecture 1: Link Functions and Count Regression](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture1-glm-link-functions-and-count-regression.html).
+- Newell, C.J., Rifai, H.S., Wilson, J.T., Connor, J.A., Aziz, J.A., and Suarez, M.P. (2002). *Calculation and Use of First-Order Rate Constants for Monitored Natural Attenuation Studies*. Ground Water Issue, EPA/540/S-02/500. U.S. Environmental Protection Agency.
+- Singh, A. and Singh, A.K. (2015). *ProUCL Version 5.1 Technical Guide: Statistical Software for Environmental Applications for Data Sets with and without Nondetect Observations*. EPA/600/R-07/041. U.S. Environmental Protection Agency, Office of Research and Development.
+- Wood, S.N. (2017). *Generalized Additive Models: An Introduction with R*, Second Edition. CRC Press.

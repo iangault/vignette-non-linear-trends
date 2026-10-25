@@ -168,7 +168,7 @@ LOESS is a genuinely useful tool for **prediction**, at the cost of the inferent
 
 LOESS reproduces the same rise-then-plateau shape as k-NN, more smoothly. The two methods aren't independent checks in a strong sense — both are local averages of the same observations. Their agreement supports a real feature of the data rather than an artifact of the averaging method.
 
-Neither fit supports a significance test on its own. [Generalized Additive Models](gam.qmd), next, keeps a data-driven curve like this one but adds a fitted smoothing penalty and a significance test on the smooth term, which is what turns a shape seen on a plot into a testable claim.
+Neither fit supports a significance test on its own. [Generalized Additive Models](gam.qmd), next, keeps a data-driven curve like this one but adds a fitted smoothing penalty and a significance test on the smooth term, which is what turns a shape seen on a plot into a testable claim. Total Phosphorus itself is picked up again in [Mechanism vs. Shape](mechanism-vs-shape.qmd), which fits a GAM to this record and asks whether any parametric curve is justified for it.
 
 ## References
 
