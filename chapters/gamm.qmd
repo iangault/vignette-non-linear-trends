@@ -300,6 +300,8 @@ The general lesson carries beyond this one series: fitting a GAM to a regularly 
 
 Stepping back, this is what getting the model's structure right buys: log(DO) has three things riding on top of each other in the raw series — a long-term trend, an annual seasonal cycle, and correlated residual noise — and the GAMM is what separates them, rather than leaving them tangled together the way the raw plot at the top of this chapter does. Separating them, rather than eyeballing the record or decomposing it descriptively, is what turns a shape into a defensible claim.
 
+That completes the methods on this site. [Linear vs. Nonlinear Comparison](linear-vs-nonlinear-comparison.qmd), next, opens the closing section on choosing a model, starting with the narrowest version of the question: whether a series needs any of this added flexibility at all.
+
 ## Extending this analysis
 
 `corAR1()` was the right correction here because the ACF plot showed a single lag-1 dependency decaying geometrically. A residual ACF with a different shape on another record — a spike at the seasonal lag instead of lag 1, or a decay `corAR1()`'s single parameter can't fit — would call for `nlme::lme()`'s richer `corARMA()` family instead.

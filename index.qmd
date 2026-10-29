@@ -35,9 +35,9 @@ The chapters that follow are organized by who decides the curve's shape, rather 
 
 [k-Nearest neighbors](chapters/knn-regression.qmd) and [LOESS](chapters/loess-smoothing.qmd) hand that decision to the data instead — they diagnose the record's shape with no assumed form, but neither one produces a significance test for the shape it finds.
 
-[GAM](chapters/gam.qmd) keeps the data-driven shape and adds that test, with the flexibility controlled by a fitted penalty rather than an assumed form. [Mechanism vs. Shape](chapters/mechanism-vs-shape.qmd) then asks what a fitted curve entitles an analyst to say, fitting Total Phosphorus three ways (logistic, piecewise, GAM) and contrasting it with a simulated plume whose first-order decay justifies a parametric model; [GAMM](chapters/gamm.qmd) then checks whether that model's significance test can be trusted once residuals are correlated.
+[GAM](chapters/gam.qmd) keeps the data-driven shape and adds that test, with the flexibility controlled by a fitted penalty rather than an assumed form. [GAMM](chapters/gamm.qmd) then checks whether that test can be trusted once residuals are correlated.
 
-[Linear vs. Nonlinear Comparison](chapters/linear-vs-nonlinear-comparison.qmd) is a closing comparison that checks if any of that added flexibility was worth it against a plain linear fit, and goes through a case study of when it's not.
+Two closing chapters turn from fitting to choosing. [Linear vs. Nonlinear Comparison](chapters/linear-vs-nonlinear-comparison.qmd) checks whether added flexibility was worth it against a plain linear fit, and goes through a case study of when it's not. [Mechanism vs. Shape](chapters/mechanism-vs-shape.qmd) asks what a fitted curve entitles an analyst to say, fitting Total Phosphorus three ways (logistic, piecewise, GAM) and contrasting it with a simulated plume whose first-order decay justifies a parametric model.
 
 ## What ordinary least squares is actually doing
 
@@ -109,8 +109,8 @@ The default reflex, faced with any time series, is to fit a straight line throug
 | A permit change or effluent release may have shifted the slope — how do I quantify a break I can already see? | Confirmatory | Quantifying a break already visible in the record | [Piecewise / Segmented Regression](chapters/piecewise-regression.qmd) | Two slopes and a breakpoint location, each with a confidence interval |
 | There may have been a spill that jumped the level to something new, and I don't know when | Forensic | Locating an unknown event from the data alone | [Changepoint Detection](chapters/changepoint-detection.qmd) | A break location found by search, with a confidence interval and a significance test for whether a break exists at all |
 | I have a large dataset with no single knot or known curve to fit, and I need a defensible significance test | General-purpose / flexible-but-inferential | Fitting a smooth curve without assuming its shape in advance | [Generalized Additive Models](chapters/gam.qmd) | A smooth curve with an effective-degrees-of-freedom count and a significance test on the smooth term |
-| A curve looks like a known family (decay, saturation, growth). Can I fit that family and report its parameters? | Model choice | Checking whether a known process justifies a parametric form | [Mechanism vs. Shape](chapters/mechanism-vs-shape.qmd) | A rate constant with a CI when a known process holds and its predictions check out; otherwise a GAM description of when the record changed, how fast, and whether it is still changing |
 | The record is seasonal or regularly sampled, and residuals might not be independent (e.g. monthly monitoring) | Assumption check | Corrects a GAM's result rather than posing a new goal | [Generalized Additive Mixed Models](chapters/gamm.qmd) | The same smooth-term test as a GAM, with standard errors that account for correlated residuals |
+| A curve looks like a known family (decay, saturation, growth). Can I fit that family and report its parameters? | Model choice | Checking whether a known process justifies a parametric form | [Mechanism vs. Shape](chapters/mechanism-vs-shape.qmd) | A rate constant with a CI when a known process holds and its predictions check out; otherwise a GAM description of when the record changed, how fast, and whether it is still changing |
 
 : {tbl-colwidths="[22,12,17,17,32]"}
 

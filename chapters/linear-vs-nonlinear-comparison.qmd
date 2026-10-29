@@ -143,6 +143,8 @@ Neither control case rewards the extra flexibility a GAM offers, and the simple 
 
 This chapter ran the lm-vs-GAM comparison on two analytes chosen in advance to explore `lm()`-vs-`gam()`-by-AIC comparison for any series where a plot leaves real doubt about whether a bend is genuine or just noise. It isn't a step every series needs: for most analytes, the raw plot already settles the question — a visibly straight trend or a visibly flat scatter doesn't need a fitted GAM to confirm what's apparent by eye. This chapter is for the narrower case where that visual judgment is genuinely unclear and a fitted comparison is worth the effort to settle it.
 
+This comparison settles how flexible a model needs to be, not which form it should take. [Mechanism vs. Shape](mechanism-vs-shape.qmd), next, takes up that broader question: when a parametric curve is justified over a GAM, and why a curve that only resembles the data is not enough to justify one.
+
 ## References
 
 - UBC Master of Data Science, *DSCI 561: Regression I*.

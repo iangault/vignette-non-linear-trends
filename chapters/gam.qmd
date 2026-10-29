@@ -19,7 +19,7 @@ cu_wq <- non_linear_wq |> filter(analyte == "Total Copper")
 
 Total Copper has a shape with no apparent periodic structure and no small set of knots an analyst would confidently place by eye, which rules out the methods used so far: [piecewise regression](piecewise-regression.qmd) assumes flat-then-sloped segments and [changepoint detection](changepoint-detection.qmd) assumes a single level jump.
 
-[GAMM](gamm.qmd), two chapters on, builds for a repeating annual shape with a correlated-noise problem (Dissolved Oxygen), which is not relevant here.
+[GAMM](gamm.qmd), next, builds for a repeating annual shape with a correlated-noise problem (Dissolved Oxygen), which is not relevant here.
 
 This is the case a **generalized additive model (GAM)** is built for: a curve shape too irregular to describe with a handful of hand-picked segments or knots in a linear combination. The record still needs an answer to a concrete question — is this concentration currently rising, falling, or holding — and a GAM is what turns that into a testable claim rather than a read off a noisy plot.
 
@@ -328,7 +328,7 @@ The GAM's smoothing penalty found this shape without being told any of it in adv
 
 For a regulator asking "is this currently a problem," the record closes on the flat, partially-recovered plateau rather than the elevated spike, which is a materially different answer than either the raw high-water mark or a single straight-line trend fit to the whole record would give.
 
-[Mechanism vs. Shape](mechanism-vs-shape.qmd), next, asks the reverse question: when a fixed parametric curve is the better choice than a GAM, and why a curve that only resembles the data is not enough to justify one.
+[Generalized Additive Mixed Models](gamm.qmd), next, checks the assumption this chapter's significance test leaned on: that the residuals are independent. Total Copper passed that check; Dissolved Oxygen does not.
 
 ## Extending this analysis
 

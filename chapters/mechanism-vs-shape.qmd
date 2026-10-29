@@ -18,7 +18,7 @@ tp_wq <- non_linear_wq |> filter(analyte == "Total Phosphorus")
 
 ## A fit is not an explanation
 
-[k-Nearest Neighbors](knn-regression.qmd) and [LOESS](loess-smoothing.qmd) left Total Phosphorus as a rise into a plateau, described without assuming any form for the curve. The natural next step is to name that shape: find a curve family that looks like it, fit it, and report its parameters as the result. A rise that levels off resembles a logistic growth curve, and a logistic curve fits this record well.
+Total Phosphorus was last seen in [k-Nearest Neighbors](knn-regression.qmd) and [LOESS](loess-smoothing.qmd), which left it as a rise into a plateau, described without assuming any form for the curve. With the full set of methods now in hand, this chapter returns to that record. The natural next step is to name that shape: find a curve family that looks like it, fit it, and report its parameters as the result. A rise that levels off resembles a logistic growth curve, and a logistic curve fits this record well.
 
 That step needs more than a good fit. Each parameter of a fitted curve makes a claim about the process behind the record: a ceiling the concentration is approaching, a date a change began, a rate at which something decays. A curve can match the data closely while the process its parameters describe never took place. A fit is not an explanation.
 
@@ -435,7 +435,7 @@ For the plume, a known process and a question that reaches past the record justi
 
 Two things would change the Total Phosphorus choice: a documented event on a known date, which moves the record to [Piecewise Regression](piecewise-regression.qmd) with the break fixed at that date, or independent evidence for a process together with a question that reaches past the record.
 
-[Generalized Additive Mixed Models](gamm.qmd), next, returns to GAMs and checks whether their significance tests can be trusted when residuals are correlated from one sample to the next.
+The same reasoning applies across this site. Each method chapter matched a model to a shape, and [Linear vs. Nonlinear Comparison](linear-vs-nonlinear-comparison.qmd) checked that the flexibility was earned. The question, the data-generating process and how far the answer has to reach decide which of those models belongs in a report, and what its numbers can be taken to mean.
 
 ## References
 
