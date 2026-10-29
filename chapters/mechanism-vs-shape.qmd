@@ -1,6 +1,6 @@
 ---
 title: "Mechanism vs. Shape"
-subtitle: "Choosing what to report about a nonlinear trend: the question, the process, and how far the answer reaches"
+subtitle: "Choosing what to report about a nonlinear trend: how the research question, process, and scope dictate the model"
 ---
 
 ```{r}
@@ -18,9 +18,15 @@ tp_wq <- non_linear_wq |> filter(analyte == "Total Phosphorus")
 
 ## A fit is not an explanation
 
-Total Phosphorus was last seen in [k-Nearest Neighbors](knn-regression.qmd) and [LOESS](loess-smoothing.qmd), which left it as a rise into a plateau, described without assuming any form for the curve. With the full set of methods now in hand, this chapter returns to that record. The natural next step is to name that shape: find a curve family that looks like it, fit it, and report its parameters as the result. A rise that levels off resembles a logistic growth curve, and a logistic curve fits this record well.
+Total Phosphorus was last seen in [k-Nearest Neighbors](knn-regression.qmd) and [LOESS](loess-smoothing.qmd), which left it as a rise into a plateau, described without assuming any form for the curve. With the full set of methods now in hand, this chapter returns to that record.
 
-That step needs more than a good fit. Each parameter of a fitted curve makes a claim about the process behind the record: a ceiling the concentration is approaching, a date a change began, a rate at which something decays. A curve can match the data closely while the process its parameters describe never took place. A fit is not an explanation.
+The natural next step is to name that shape: find a curve family that looks like it, fit it, and report its parameters as the result. A rise that levels off resembles a logistic growth curve, and a logistic curve fits this record well.
+
+That step needs more than a good fit. Each parameter of a fitted curve makes a claim about the process behind the record. For a logistic growth curve, that means a ceiling the concentration is approaching, a date the change began, and a rate at which it grew.
+
+::: callout-tip
+**Key point:** a curve can match the data closely while the process its parameters describe never took place. A fit is not an explanation.
+:::
 
 ## Three inputs to the choice
 
@@ -28,26 +34,24 @@ Each chapter so far has matched a model to a shape seen in the data: a bend, a j
 
 1. **The question.** What number does the decision need: a rate of change, whether the record is still rising, the date a goal will be met? This is the **estimand** from [The Regression Framework](regression-framework.qmd).
 2. **How the data arose.** The physical, chemical and hydrological processes behind the values, and the sampling and laboratory practices that recorded them. Statisticians call this the **data-generating process**.
-3. **How far the answer has to reach.** Whether the model only needs to describe the monitored period, or has to say something about years not yet observed.
+3. **How far the answer has to reach.** Whether the model only needs to describe the monitored period, or has to say something about years not yet observed (forecasting).
 
-None of these is new to water-quality trend analysis. Hirsch et al. (1991) set out trend analysis as a series of choices that begin with what kind of trend is being tested, such as a step change or a gradual monotonic one. In environmental modelling more broadly, Kelly et al. (2013) list the purpose of a model among the factors that decide which modelling approach fits.
+None of these is new to water-quality trend analysis. Hirsch et al. (1991) set out trend analysis as a series of choices that begin with what kind of trend is being tested, such as a step change or a gradual monotonic one. In environmental modelling more broadly, Kelly et al. (2013) list the **purpose** of a model among the factors that decide which modelling approach fits.
 
-When the question and the process are both well understood, they narrow the choice and give the parameters a physical reading that can be checked. When the process is not well understood, the safer choice is a model that describes the record without claiming to know what produced it. The third input sets how much rides on that difference. Inside the observed record, a description is usually enough. Beyond it, only a known process can justify where the curve goes.
+When the question and the process are both well understood, they narrow the choice and give the parameters a physical reading that can be checked. When the process is not well understood, the safer choice is a model that describes the record without claiming to know what produced it.
 
-Crossing the third input with how well the process is known gives four situations:
+Crossing the third input (how far the answer has to reach) with how well the process is known gives four situations that helps descide on an approach:
 
-|  | Process poorly known | Process independently supported |
+|  | **Process unknown:** describe the shape | **Process known and checkable:** model the process |
 |---|---|---|
-| **Describe the record** | Report when the record changed, how fast, and whether it is still changing, with a GAM ([Total Phosphorus](#case-tp), below) | Report the effect of a documented event, such as a change in slope at a known date, with [Piecewise Regression](piecewise-regression.qmd) |
-| **Go beyond the record** | The record cannot answer this; say so rather than forecast | Fit the model the process implies, check its predictions, and project with stated limits ([plume decay](#case-plume), below) |
+| **Within the record** (what happened) | When the record changed, how fast, and whether it is still changing. **Model:** GAM. **Example:** [Total Phosphorus](#case-tp) | The effect of a documented event, such as a change in slope at a known date. **Model:** [Piecewise Regression](piecewise-regression.qmd) with the break fixed at that date |
+| **Beyond the record** (forecasting) | The over-modelling trap: a curve chosen because it fits will still project, but its forecast is the formula's assumption, not the process. Don't forecast; report where the record ends. **Example:** [Total Phosphorus as a logistic curve](#tp-past-record) | Fit the model the process implies, check it against held-out data, and project with stated limits. **Model:** first-order decay. **Example:** [plume](#case-plume) |
 
-: What to report, by how well the process is known and how far the answer has to reach {tbl-colwidths="[20,40,40]"}
-
-A known process also gives a way to check itself. It predicts something about the data beyond the shape of the curve, and the record can be tested against that prediction. A curve chosen only because it resembles the data makes no such prediction, so nothing can confirm or rule it out.
+A known process can also be checked, because it makes claims the record could fail. First-order decay after source removal says the log-scale record should be a straight line, and that a rate fitted to the early years should predict the later ones; the [plume](#case-plume) is tested on both. A curve chosen because it looks like the plot has no such test. It was picked for fitting the shape, so fitting the shape is no evidence for it.
 
 ## Total Phosphorus: three fits, one record {#case-tp}
 
-The Total Phosphorus record rises through the middle years and then levels off. The question is the one a regulator would ask of any monitoring record: is it still rising, and where does it stand now?
+The Total Phosphorus record rises through the middle years and then levels off. The question is the one a regulator would ask of any monitoring record: is it still rising?
 
 Nothing about the site establishes the process. Phosphorus at a sampling point reflects loading from the surrounding land, flow and dilution, release from bed sediments, uptake by plants and algae, and sampling and laboratory variation, all acting at once. The monitoring design does not separate them.
 
@@ -57,7 +61,7 @@ Three models are reasonable to reach for given the shape. The first two each com
 - **Piecewise linear regression with two breakpoints.** The model from [Piecewise Regression](piecewise-regression.qmd), with a second breakpoint so the record can level off again. Its story is a change that began on one date and was complete by another, such as a new discharge phased in over a few years.
 - **GAM.** The smooth from [Generalized Additive Models](gam.qmd) (Wood, 2017), with its shape estimated from the data and its flexibility set by a fitted penalty. It describes the record without proposing a mechanism.
 
-All three are fit to `log(result)` with Gaussian errors, so their AICs are comparable. The breakpoint search is seeded from a visual read of the series, as in [Piecewise Regression](piecewise-regression.qmd).
+All three are fit to `log(result)` with Gaussian errors, so their AICs are comparable. As in [Piecewise Regression](piecewise-regression.qmd), `segmented()` needs a starting guess for each breakpoint (`psi`), read off the plot: about year 3, where the rise begins, and year 8, where it levels off. The search then estimates the breakpoints from the data, so the guesses only need to be close.
 
 ```{r}
 #| label: tp-family-fits
@@ -104,43 +108,45 @@ ceiling_mgl <- exp(c(logi[["ceiling"]], logi_ci["ceiling", ]))
 floor_mgl <- exp(logi[["floor"]])
 ```
 
-The three fits are close: their AICs span `r sprintf("%.1f", aic_spread)` units, within the difference of about 2 that is commonly treated as too small to prefer one model over another. Their curves overlap across most of the record and agree on the level before the rise, the level after it, and roughly when it happened.
+The three fits are close: their AICs span `r sprintf("%.1f", aic_spread)` units, which is too small to give preference to one model over another. Their curves overlap across most of the record.
 
 They disagree on what happened. The logistic curve reports a ceiling of `r round(ceiling_mgl[1], 3)` mg/L (95% CI `r round(ceiling_mgl[2], 3)`–`r round(ceiling_mgl[3], 3)`), which reads like a limit the concentration cannot pass. The piecewise model reports two breakpoints, at year `r psi_txt[1, 1]` (95% CI `r psi_txt[1, 2]`–`r psi_txt[1, 3]`) and year `r psi_txt[2, 1]` (95% CI `r psi_txt[2, 2]`–`r psi_txt[2, 3]`), which read like the dates of two events: something started, and something finished. Both sets of intervals are narrow. But each model fits the record as well as the other, and as well as a GAM that claims neither a ceiling nor any events. The intervals measure how precisely each parameter is located **if** that model is the right one. They are not evidence that a ceiling exists or that anything happened on those dates.
 
-Different processes producing the same curve is known as **equifinality**, and it is the general problem with fitting a process-based curve to a record whose process is unknown. Each model's parameters describe a story, and the data cannot tell the stories apart. Reporting a ceiling or a pair of event dates would report a process nobody established.
+Different processes producing the same curve is known as **equifinality** (Beven, 2006), and it is the general problem with fitting a process-based curve to a record whose process is unknown. Each model's parameters describe a story, and the data cannot tell the stories apart. Reporting a ceiling or a pair of event dates would report a process nobody established.
 
 ::: callout-note
 ## How this record was generated
 
 The Total Phosphorus series on this site is synthetic, and it was generated from a logistic curve on the log scale: a floor of 0.02 mg/L, a ceiling of 0.08 mg/L, and a rise centred on year 5 (`R/generate_synthetic_data.R`). The logistic fit above recovers those values closely, with a floor of `r round(floor_mgl, 3)` mg/L, a ceiling of `r round(ceiling_mgl[1], 3)` mg/L and a midpoint at year `r sprintf("%.1f", logi[["mid"]])`.
 
-That strengthens the point rather than weakening it. Even here, where the logistic curve is the true one, the piecewise model and the GAM fit the record as well, so the record alone could not have confirmed the logistic form. A real monitoring record has no generator to check against, and a logistic curve would fit it just as convincingly whether or not any ceiling process existed.
+Even here, where the logistic curve is the true one (albeit, fake), the piecewise model and the GAM fit the record as well, so the record alone could not have confirmed the logistic form. A real monitoring record has no generator to check against, and a logistic curve would fit it just as convincingly whether or not any ceiling process existed.
 :::
 
 ## Piecewise or GAM: different questions, not rivals
 
-Inside the record, the three fits in the figure draw nearly the same curve. What separates them is what each one reports, and so which question it answers. Choosing between them, and between the methods in earlier chapters, comes back to the first input: the question.
+Inside the record, the three fits draw nearly the same curve. What separates them is what each one reports, and so which question it answers.
 
-| If the question is… | The estimand is… | Model that answers it directly | Where |
-|---|---|---|---|
-| Is the record still rising? | Sign and size of the recent rate of change | GAM, slope over a recent period | [GAM](gam.qmd), this chapter |
-| How fast did it change over a period? | Average slope over that period | GAM averaged over the period, or a piecewise segment slope | This chapter |
-| Did a known event change the trend? | Change in slope at a known date | Piecewise regression with the break fixed at that date | [Piecewise Regression](piecewise-regression.qmd) |
-| When did the change happen? | Breakpoint location | Piecewise regression with an estimated break | [Piecewise Regression](piecewise-regression.qmd) |
-| Was there a sudden level shift? | Step size and timing | Changepoint detection | [Changepoint Detection](changepoint-detection.qmd) |
+| If the question is… | The estimand is… | Model that answers it |
+|---|---|---|
+| Is the record still rising? | The rate of change since the last shift | GAM, slope averaged over that stretch |
+| How fast did it change over a period? | Average slope over that period | GAM averaged over the period, or a piecewise segment slope |
+| Did a known event change the trend? | Change in slope at a known date | [Piecewise regression](piecewise-regression.qmd) with the break fixed at that date |
 
-: Which model answers which question {tbl-colwidths="[24,24,32,20]"}
+: Which model answers which question {tbl-colwidths="[30,30,40]"}
 
-A piecewise model treats the breakpoints as unknown parameters and returns their locations with confidence intervals, plus a slope on each side (Muggeo, 2008). That is the right output when a break is real. Its slopes and intervals are conditional on the breaks, though: each segment slope describes the record between two breakpoints the model assumes exist. Fit to a smooth rise like Total Phosphorus, the model still returns breakpoints with narrow intervals, as above. It has cut a gradual curve into straight pieces, and the cut points mark where the pieces were joined, not when anything changed.
+**A piecewise model reports dates.** It estimates breakpoints with confidence intervals and a slope between each pair (Muggeo, 2008), and all of that assumes the breaks are real. Fit to a smooth rise like Total Phosphorus, it still returns breakpoints with narrow intervals, as above. They mark where the model joined two straight pieces, not when anything changed.
 
-A GAM returns something different: the stretches of the record where the local slope can be told apart from zero. Where such a stretch begins is not an estimate of when the change started. It depends on how much data surrounds each point, how noisy that data is, and which interval is used. Simpson (2018) shows that simultaneous intervals, which hold across the whole curve at once, are noticeably wider than the pointwise intervals used on this site, so they flag shorter stretches. A stretch that is not flagged may reflect too little data rather than no change. A GAM therefore supports "rising over roughly these years, at about this rate", not "the change began in year X".
+**A GAM reports rates.** It flags the stretches where the local slope differs from zero. Where a stretch begins depends on how much data surrounds it, how noisy that data is, and which interval is used (simultaneous intervals flag shorter stretches than the pointwise ones used here; Simpson, 2018). So a GAM supports "rising over roughly these years, at about this rate", not "the change began in year X".
 
-For Total Phosphorus, with no known event, the questions are whether the record is still rising and how fast it rose. Both are about rates over periods, which the GAM answers without introducing dates the record cannot support. If a documented event existed, such as a permit change on a known date, the third row of the table would apply instead.
+For Total Phosphorus there is no known event, and the questions are whether the record is still rising and how fast it rose. Both are rates, so the GAM answers them without introducing dates the record cannot support.
 
-## Past the end of the record
+## Why Total Phosphorus is not forecast {#tp-past-record}
 
-This site's premise is inference on the observed record, not forecasting. Extending two of the fits five years past the last sample shows why, and shows what the logistic curve's assumption costs.
+::: callout-warning
+**Outside this site's scope, shown on purpose.** This site describes the observed record and does not forecast. This section makes one exception: it extends the logistic and GAM fits five years past the last sample to show what goes wrong when a model with no known process behind it is asked to forecast. Neither projection is a result to report.
+:::
+
+The code below evaluates both fits on a grid that runs from the start of the record to five years past its end, with a 95% band around each. The GAM's band comes from `predict()`. The logistic curve has no built-in equivalent, so its band is computed by the delta method, which propagates the uncertainty in its four fitted parameters through the curve. Both are fit on the log scale and converted back to mg/L.
 
 ```{r}
 #| label: tp-projection
@@ -170,6 +176,8 @@ proj_curves |>
   filter(year_frac == max(year_frac)) |>
   dplyr::select(model, est, lwr, upr)
 ```
+
+The printout is each model's projected level five years after the last sample: `est` is the estimate in mg/L, and `lwr` and `upr` are the ends of its 95% band. The figure shows the full curves.
 
 ```{r}
 #| label: tp-projection-plot
@@ -203,9 +211,17 @@ Inside the record the two curves agree. Past it, they part ways:
 - **The GAM breaks down.** A penalized smooth is estimated from the data around each point, and past the last sample there is none. The thin plate smooth's penalty acts on curvature, so with no data to bend it, the curve carries on roughly along its final slope on the log scale. The record ends on a small upturn, and the GAM carries it forward: from `r fmt(gam_end)` at the last sample to `r fmt(gam_5)` five years later. The widening band is the useful part of that output. It shows that the GAM has no information about those years.
 - **The logistic curve stays flat by assumption.** It projects `r fmt(logi_5)` five years out, the same to three decimal places as its `r sprintf("%.3f", logi_end$est)` mg/L at the last sample. The narrow band does not come from the data showing that the plateau will hold. It comes from the formula, which cannot rise above its ceiling, and it covers uncertainty in the fitted parameters only, not any change in the process. A phosphorus plateau has no ceiling behind it in environmental chemistry. It reflects a balance between loading, flow, sediment release and uptake, and that balance shifts when land use, discharges or the monitoring program change. Reporting the ceiling as the future level asserts that the balance will hold, which nothing in the record shows.
 
-In this synthetic record the logistic projection happens to be close to right, because the generator is a logistic curve with a fixed ceiling. That is a property of how the data were made, not something the record could have shown.
+::: callout-note
+**About this synthetic record.** The logistic projection happens to be close to right here, because the generator is a logistic curve with a fixed ceiling. That is a property of how the data were made, not something the record could have shown.
+:::
 
-Inside the record, the two fits agree, so for describing the record the GAM is enough and claims less. Outside the record, one model is unstable and the other is confident for a reason the data does not supply. The gap between their projections is the cost of the mechanism assumption, made visible. Neither projection is one this site would report; the next section describes the record instead.
+Inside the record, the two fits agree, so for describing the record the GAM is enough and claims less. Outside the record, one model is unstable and the other is confident for a reason the data does not supply. 
+
+::: callout-tip
+The gap between their projections is the cost of the mechanism assumption, made visible.
+:::
+
+Neither projection is one this site would report; the next section describes the record instead, as a more supported approach, given the unknown process.
 
 ## Reporting Total Phosphorus without claiming a process
 
@@ -215,6 +231,8 @@ The question still needs an answer. The GAM from the figure above gives one with
 #| label: tp-gam-fit
 summary(fit_tp_gam)$s.table
 ```
+
+The printout is the test on the smooth term: `edf` is its effective degrees of freedom, a measure of how much the curve bends, and `p-value` tests whether it differs from a flat line.
 
 Every interval below rests on the residuals being independent. [Generalized Additive Mixed Models](gamm.qmd) showed that a regularly sampled record can fail that check without the fit giving any sign of it, so it comes first here.
 
@@ -226,6 +244,8 @@ tp_box
 ```
 
 Lag-1 autocorrelation is `r round(acf(resid(fit_tp_gam), plot = FALSE)$acf[2], 2)`, and the Ljung-Box test finds no evidence against independence ($p$ = `r sprintf("%.2f", tp_box$p.value)`). Unlike Dissolved Oxygen, this record needs no correlation structure, and the GAM's intervals can be read as they stand.
+
+The next chunk computes the local slope of the smooth at each point on a fine grid, as in the [GAM](gam.qmd) chapter. The curve is evaluated just either side of each point, and the difference gives the slope and its standard error. A point is labelled rising or falling when its 95% interval excludes zero, and flat otherwise. The printout gives the first and last years labelled rising.
 
 ```{r}
 #| label: tp-gam-derivative
@@ -249,10 +269,10 @@ tp_grid <- tp_grid |>
   )
 
 rising <- tp_grid |> filter(trend == "rising")
-end_pred <- predict(fit_tp_gam, newdata = data.frame(year_frac = max(tp_wq$year_frac)), se.fit = TRUE)
-end_level <- exp(as.numeric(end_pred$fit) + c(fit = 0, lower = -1.96, upper = 1.96) * as.numeric(end_pred$se.fit))
-c(rise_start = min(rising$year_frac), rise_end = max(rising$year_frac), end_level)
+c(rise_start = min(rising$year_frac), rise_end = max(rising$year_frac))
 ```
+
+The slope is on the log scale, so it converts to a percent change per year. This chunk averages it over two stretches: the years labelled rising, and everything after them. Each row of the printout is a slope in %/year with its 95% interval.
 
 ```{r}
 #| label: tp-gam-rates
@@ -264,10 +284,11 @@ period_slope <- function(rows) {
   100 * (exp(c(slope = b, lower = b - 1.96 * s, upper = b + 1.96 * s)) - 1)
 }
 rise_slope <- period_slope(tp_grid$trend == "rising")
-end_slope <- 100 * (exp(deriv[nrow(tp_grid)] + c(slope = 0, lower = -1.96, upper = 1.96) * se[nrow(tp_grid)]) - 1)
-last5_slope <- period_slope(tp_grid$year_frac >= max(tp_wq$year_frac) - 5)
-rbind(rise = rise_slope, end_of_record = end_slope, last_5_years = last5_slope)
+plateau_slope <- period_slope(tp_grid$year_frac > max(rising$year_frac))
+rbind(rise = rise_slope, since_rise = plateau_slope)
 ```
+
+The figure colours the fitted curve by those labels.
 
 ```{r}
 #| label: tp-gam-derivative-plot
@@ -297,13 +318,9 @@ s_tab <- summary(fit_tp_gam)$s.table
 
 - **The record changed.** The smooth term is significant (edf `r round(s_tab[1, "edf"], 1)`, $p$ < 0.001). This is the formal test that the record is not flat, and it does not depend on choosing any period.
 - **It rose from about year `r sprintf("%.1f", min(rising$year_frac))` to year `r sprintf("%.1f", max(rising$year_frac))`, at an average of `r pct(rise_slope[["slope"]])` per year** (95% CI `r pct(rise_slope[["lower"]])` to `r pct(rise_slope[["upper"]])`). This averages the local slope over the stretch where it is significantly positive. Because that stretch was picked from the same fit, its interval excluding zero is built in. The number describes how fast the rise was and how precisely the record pins that down; it is not a separate test that a rise happened.
-- **Whether it is still rising cannot be told from the record.** The local slope at the last sample is `r pct(end_slope[["slope"]])` per year (95% CI `r pct(end_slope[["lower"]])` to `r pct(end_slope[["upper"]])`). The interval includes zero and is wide, because at the end of the record the GAM has data on one side only, the same boundary effect seen in [LOESS](loess-smoothing.qmd). The record is consistent with anything from a modest decline to a continued rise. The fitted level at the last sample is `r round(end_level[["fit"]], 3)` mg/L (95% CI `r round(end_level[["lower"]], 3)`–`r round(end_level[["upper"]], 3)`).
+- **Since then, no change can be told apart from zero.** The average slope after year `r sprintf("%.1f", max(rising$year_frac))` is `r pct(plateau_slope[["slope"]])` per year (95% CI `r pct(plateau_slope[["lower"]])` to `r pct(plateau_slope[["upper"]])`), and the local slope is flat at every point in that stretch. The fitted curve dips and turns up again near the end, but the GAM cannot separate that movement from noise.
 
-Those statements are what a client or regulator needs: when the rise happened, how fast it was, what the record can and cannot say about now, and where the level stands. The timing of the rise and the level after it are also what the three fits agreed on, obtained here without taking the logistic or piecewise story on board. Two cautions apply. "Flat" means the slope cannot be told apart from zero, not that it is shown to be zero. And the interval at each point is pointwise, so the start and end years of the rise are approximate.
-
-Some reporting asks a different question: how much the record changed over a defined period, such as the last five-year permit cycle. The GAM answers that by averaging its slope over the period, but the period has to come from the question, not from the analyst, since a window picked after looking at the fit can be moved until it gives the answer wanted. The choice also matters. Here the last five years begin at year `r round(max(tp_wq$year_frac) - 5, 1)`, which takes in the end of the rise, so their average slope is `r pct(last5_slope[["slope"]])` per year (95% CI `r pct(last5_slope[["lower"]])` to `r pct(last5_slope[["upper"]])`) even though the local slope has been flat since about year `r round(max(rising$year_frac))`. The two numbers answer different questions.
-
-**What this description leaves out.** How the data arose includes how it was collected. A change in laboratory, analytical method, detection limit or sampling strategy can create a shape in a record by itself; the Chesapeake Bay GAMs include intervention terms for method and laboratory changes for this reason (Murphy et al., 2019). In surface water, discharge also drives concentration, and trend analyses commonly adjust for it so that a run of wet or dry years is not read as a trend (Hirsch et al., 1982); the Chesapeake Bay GAMs include flow or salinity as a model term. The synthetic records on this site have no flow component and no method changes, which is a simplification. With real data, both belong in the model or in the account of how the data arose.
+These are the statements the three fits agreed on, obtained without taking the logistic or piecewise story on board. Two cautions apply. "Flat" means the slope cannot be told apart from zero, not that it is shown to be zero. And the interval at each point is pointwise, so the start and end years of the rise are approximate.
 
 If a specific event is suspected, such as a permit change or a new upstream discharge on a known date, that changes the situation: there is now a proposed process with a date attached. [Piecewise Regression](piecewise-regression.qmd) can test for a change in slope at that date, and [Changepoint Detection](changepoint-detection.qmd) can check whether the data independently places a break near it.
 
@@ -450,7 +467,7 @@ When these point to a known process, the process-based model is the stronger cho
 
 A fit is not an explanation. A model is chosen by the question, by what is known about how the data arose, and by how far the answer has to reach, not by shape alone.
 
-For Total Phosphorus, the process is unknown and the question is about the observed record. A logistic curve, a two-breakpoint piecewise model and a GAM fit it about equally well. The first two each tell a story, a ceiling or a pair of event dates, that the record cannot confirm, even though this synthetic record was in fact generated from a logistic curve. Projected past the record, the GAM becomes unstable and the logistic curve stays flat only because its formula requires it. With an unknown process and no need to forecast, the GAM is the more defensible model for this record. Its report is that the record changed (smooth term $p$ < 0.001); that it rose from about year `r sprintf("%.1f", min(rising$year_frac))` to year `r sprintf("%.1f", max(rising$year_frac))` at an average of `r pct(rise_slope[["slope"]])` per year (95% CI `r pct(rise_slope[["lower"]])` to `r pct(rise_slope[["upper"]])`); that whether it is still rising cannot be told from the record (end-of-record slope `r pct(end_slope[["slope"]])` per year, 95% CI `r pct(end_slope[["lower"]])` to `r pct(end_slope[["upper"]])`); and that the level at the last sample is `r round(end_level[["fit"]], 3)` mg/L (95% CI `r round(end_level[["lower"]], 3)`–`r round(end_level[["upper"]], 3)`).
+For Total Phosphorus, the process is unknown and the question is about the observed record. A logistic curve, a two-breakpoint piecewise model and a GAM fit it about equally well. The first two each tell a story, a ceiling or a pair of event dates, that the record cannot confirm, even though this synthetic record was in fact generated from a logistic curve. Projected past the record, the GAM becomes unstable and the logistic curve stays flat only because its formula requires it. With an unknown process and no need to forecast, the GAM is the more defensible model for this record. Its report is that the record changed (smooth term $p$ < 0.001); that it rose from about year `r sprintf("%.1f", min(rising$year_frac))` to year `r sprintf("%.1f", max(rising$year_frac))` at an average of `r pct(rise_slope[["slope"]])` per year (95% CI `r pct(rise_slope[["lower"]])` to `r pct(rise_slope[["upper"]])`); and that no change since then can be told apart from zero (average slope `r pct(plateau_slope[["slope"]])` per year, 95% CI `r pct(plateau_slope[["lower"]])` to `r pct(plateau_slope[["upper"]])`).
 
 For the plume, a known process and a question that reaches past the record justify a first-order model. Its parameter answers the question directly, a cleanup date about `r round(time_to_goal, 1)` years after removal (`r round(time_to_goal_range[1], 1)`–`r round(time_to_goal_range[2], 1)` years from the confidence band), and the record passes both the straight-line check and the split-record check. Even then, the projection holds only as long as the process does, and should be updated as monitoring continues.
 
@@ -460,6 +477,7 @@ The same reasoning applies across this site. Each method chapter matched a model
 
 ## References
 
+- Beven, K. (2006). A manifesto for the equifinality thesis. *Journal of Hydrology*, 320(1–2), 18–36. https://doi.org/10.1016/j.jhydrol.2005.07.007
 - Hirsch, R.M., Slack, J.R., and Smith, R.A. (1982). Techniques of trend analysis for monthly water quality data. *Water Resources Research*, 18(1), 107–121.
 - Hirsch, R.M., Alexander, R.B., and Smith, R.A. (1991). Selection of methods for the detection and estimation of trends in water quality. *Water Resources Research*, 27(5), 803–813.
 - Kelly (Letcher), R.A., Jakeman, A.J., et al. (2013). Selecting among five common modelling approaches for integrated environmental assessment and management. *Environmental Modelling & Software*, 47, 159–181.
