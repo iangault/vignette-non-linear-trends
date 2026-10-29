@@ -216,6 +216,17 @@ The question still needs an answer. The GAM from the figure above gives one with
 summary(fit_tp_gam)$s.table
 ```
 
+Every interval below rests on the residuals being independent. [Generalized Additive Mixed Models](gamm.qmd) showed that a regularly sampled record can fail that check without the fit giving any sign of it, so it comes first here.
+
+```{r}
+#| label: tp-gam-acf
+acf(resid(fit_tp_gam), main = "Total Phosphorus GAM: residual autocorrelation")
+tp_box <- Box.test(resid(fit_tp_gam), lag = 1, type = "Ljung-Box")
+tp_box
+```
+
+Lag-1 autocorrelation is `r round(acf(resid(fit_tp_gam), plot = FALSE)$acf[2], 2)`, and the Ljung-Box test finds no evidence against independence ($p$ = `r sprintf("%.2f", tp_box$p.value)`). Unlike Dissolved Oxygen, this record needs no correlation structure, and the GAM's intervals can be read as they stand.
+
 ```{r}
 #| label: tp-gam-derivative
 h <- 1e-3
@@ -337,6 +348,16 @@ c(AIC_lm = AIC(fit_plume), AIC_gam = AIC(fit_plume_gam))
 ```
 
 RESET finds no significant curvature ($p$ = `r round(resettest(fit_plume)$p.value, 2)`), and the GAM does no better than the straight line (AIC `r round(AIC(fit_plume_gam), 1)` vs. `r round(AIC(fit_plume), 1)`). The record is consistent with first-order decay.
+
+The interval on $k$, and the prediction interval used in the next check, also assume independent residuals, the same assumption checked for Total Phosphorus above.
+
+```{r}
+#| label: plume-independence-check
+plume_box <- Box.test(resid(fit_plume), lag = 1, type = "Ljung-Box")
+plume_box
+```
+
+The Ljung-Box test finds no evidence of lag-1 autocorrelation ($p$ = `r sprintf("%.2f", plume_box$p.value)`), so the straight-line fit's standard errors need no correction.
 
 These checks matter because the process often fails at real sites. Decline can slow over time, for example when contaminant stored in low-permeability material seeps back out, or concentrations can rebound when part of the source was left behind. Newell et al. (2002) note that most sites with organic contamination keep some residual source even after active remediation. Either pattern bends the log-scale record, the checks above would catch it, and a single $k$ would then overstate how fast the well is cleaning up.
 
