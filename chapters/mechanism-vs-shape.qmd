@@ -9,7 +9,6 @@ subtitle: "Choosing what to report about a nonlinear trend: how the research que
 library(dplyr)
 library(ggplot2)
 library(mgcv)
-library(lmtest)
 library(segmented)
 source("R/utils.R")
 non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_types = FALSE)
@@ -324,13 +323,17 @@ These are the statements the three fits agreed on, obtained without taking the l
 
 If a specific event is suspected, such as a permit change or a new upstream discharge on a known date, that changes the situation: there is now a proposed process with a date attached. [Piecewise Regression](piecewise-regression.qmd) can test for a change in slope at that date, and [Changepoint Detection](changepoint-detection.qmd) can check whether the data independently places a break near it.
 
-## Decay after a source is removed {#case-plume}
+## When a forecast is justified: decay after a source is removed {#case-plume}
 
-Total Phosphorus sits in the top-left cell of the table at the start of this chapter: no established process, and a question about the observed record. The opposite cell is a known process and a question that reaches past the record. A monitoring well after a contaminant source is removed is the standard example. The regulator's question is how long the well will take to reach its cleanup goal, which no description of the record can answer.
+::: callout-warning
+**Outside this site's scope, by design.** This site describes the observed record and does not forecast. This section is the one case where a forecast is reported, because a known process supports carrying the fit past the last sample. The steps below show what that support has to include.
+:::
 
-After source removal, concentrations often fall by a roughly constant fraction each year. That is **first-order decay**, $C(t) = C_0 e^{-kt}$, a straight line on the log scale. The model the process implies is therefore the log-transform-then-OLS fit from [Transformations](transformations.qmd), with the slope's magnitude read as the **point decay rate constant**, $k_{\text{point}}$. US EPA guidance on monitored natural attenuation defines $k_{\text{point}}$ this way and uses it to estimate how long a location will take to reach a remediation goal (Newell et al., 2002).
+Total Phosphorus sits in the top-left cell of the table at the start of this chapter: no known process, and a question about the observed record. A plume after source removal sits in the opposite cell. After a contaminant source is removed from a site, the regulator's question is how long a monitoring well will take to reach its cleanup goal. That question reaches past the record, so only a known process can answer it.
 
-A plume is affected by no fewer processes than a stream's phosphorus: biodegradation, sorption, dispersion, dilution, water-table changes, and whatever remains of the source. A single rate is still defensible here because the period after removal has a known start (the removal date), one dominant kind of process (losses, with no new mass coming in), and losses that each remove roughly a fixed fraction of what is present, so together they behave as one first-order loss. The fitted $k$ is openly a lumped rate. Newell et al. (2002) note it mostly reflects how quickly the source is being depleted, and caution against treating it as a biodegradation rate.
+### Why a process model is justified here
+
+The period after removal has a known start, and one kind of process dominates: losses, with no new mass coming in. When those losses each remove roughly a fixed fraction of what is present, concentration falls by a constant fraction each year. That is **first-order decay**, $C(t) = C_0 e^{-kt}$, which is a straight line on the log scale, so the model is the log-transform-then-OLS fit from [Transformations](transformations.qmd). US EPA guidance on monitored natural attenuation uses its rate $k$ to estimate time to a cleanup goal, and treats it as a lumped rate for the site as a whole, not a biodegradation rate (Newell et al., 2002).
 
 ```{r}
 #| label: plume-data
@@ -340,75 +343,45 @@ plume <- data.frame(years_since_removal = seq(0, 10, by = 0.25)) |>
   mutate(conc = 1200 * exp(-0.3 * years_since_removal) * exp(rnorm(n(), sd = 0.3)))
 
 fit_plume <- lm(log(conc) ~ years_since_removal, data = plume)
-summary(fit_plume)$coefficients
-```
-
-```{r}
-#| label: plume-rate
 k_point <- -coef(fit_plume)[["years_since_removal"]]
 k_ci <- -rev(confint(fit_plume)["years_since_removal", ])
-half_life <- log(2) / k_point
-c(k_point = k_point, k_ci, half_life = half_life)
+c(k = k_point, k_ci)
 ```
 
-The fitted decay rate is $k_{\text{point}}$ = `r round(k_point, 3)` per year (95% CI `r round(k_ci[1], 3)`–`r round(k_ci[2], 3)`), a half-life of about `r round(half_life, 1)` years. Newell et al. (2002) recommend reporting a confidence interval on the slope like this one, rather than judging the fit by its $R^2$, since the interval accounts for how many samples sit behind the estimate.
+The fitted rate is $k$ = `r round(k_point, 3)` per year (95% CI `r round(k_ci[1], 3)`–`r round(k_ci[2], 3)`).
 
-### Checking the process
+### Check 1: does the record follow the process?
 
-First-order decay predicts a straight line on the log scale. Two checks test that: Ramsey's RESET test, which asks whether a curved term improves the straight-line fit, and a GAM on the same response, which is free to bend if the data supports it.
+First-order decay predicts a straight line on the log scale. A GAM fit to the same data is free to bend, so if it does no better than the line, the record shows no curvature the process does not allow. The interval on $k$ also assumes independent residuals, the check run for Total Phosphorus above.
 
 ```{r}
-#| label: plume-linearity-check
-resettest(fit_plume)
+#| label: plume-process-check
 fit_plume_gam <- gam(log(conc) ~ s(years_since_removal), data = plume, method = "REML")
-c(AIC_lm = AIC(fit_plume), AIC_gam = AIC(fit_plume_gam))
-```
-
-RESET finds no significant curvature ($p$ = `r round(resettest(fit_plume)$p.value, 2)`), and the GAM does no better than the straight line (AIC `r round(AIC(fit_plume_gam), 1)` vs. `r round(AIC(fit_plume), 1)`). The record is consistent with first-order decay.
-
-The interval on $k$, and the prediction interval used in the next check, also assume independent residuals, the same assumption checked for Total Phosphorus above.
-
-```{r}
-#| label: plume-independence-check
 plume_box <- Box.test(resid(fit_plume), lag = 1, type = "Ljung-Box")
-plume_box
+c(AIC_line = AIC(fit_plume), AIC_gam = AIC(fit_plume_gam), ljung_box_p = plume_box$p.value)
 ```
 
-The Ljung-Box test finds no evidence of lag-1 autocorrelation ($p$ = `r sprintf("%.2f", plume_box$p.value)`), so the straight-line fit's standard errors need no correction.
+The GAM does no better than the line (AIC `r sprintf("%.1f", AIC(fit_plume_gam))` vs. `r sprintf("%.1f", AIC(fit_plume))`), and the residuals show no lag-1 autocorrelation (Ljung-Box $p$ = `r sprintf("%.2f", plume_box$p.value)`).
 
-These checks matter because the process often fails at real sites. Decline can slow over time, for example when contaminant stored in low-permeability material seeps back out, or concentrations can rebound when part of the source was left behind. Newell et al. (2002) note that most sites with organic contamination keep some residual source even after active remediation. Either pattern bends the log-scale record, the checks above would catch it, and a single $k$ would then overstate how fast the well is cleaning up.
+### Check 2: does the early record predict the later one?
 
-### Checking the forecast: fit the first half, predict the second
-
-A model that will be projected past the record should also be checked on how well it projects. Splitting the record gives a direct test: fit the first five years, predict the last five, and compare. McHugh et al. (2023) ran this comparison on monitoring records in California's GeoTracker database and found that first-order rates from the first half of a well's record were slightly negatively correlated with rates from the second half, at both petroleum and chlorinated-solvent sites.
+A model used to forecast should be tested on forecasting. Fitting the first five years and predicting the last five does that within the record.
 
 ```{r}
 #| label: plume-split
 first_half <- plume |> filter(years_since_removal < 5)
 second_half <- plume |> filter(years_since_removal >= 5)
 fit_first <- lm(log(conc) ~ years_since_removal, data = first_half)
-fit_second <- lm(log(conc) ~ years_since_removal, data = second_half)
 
-k_halves <- rbind(
-  first_half = -c(coef(fit_first)[["years_since_removal"]], rev(confint(fit_first)["years_since_removal", ])),
-  second_half = -c(coef(fit_second)[["years_since_removal"]], rev(confint(fit_second)["years_since_removal", ]))
-)
-colnames(k_halves) <- c("k", "lower", "upper")
-
-# do the second-half samples fall inside the first-half fit's 95% prediction interval?
+# share of second-half samples inside the first-half fit's 95% prediction interval
 pi_second <- predict(fit_first, newdata = second_half, interval = "prediction")
 inside_pi <- mean(log(second_half$conc) >= pi_second[, "lwr"] & log(second_half$conc) <= pi_second[, "upr"])
-time_to_goal_first <- (coef(fit_first)[[1]] - log(5)) / k_halves["first_half", "k"]
-
-k_halves
-c(share_inside_pi = inside_pi, time_to_goal_first_half = time_to_goal_first)
+inside_pi
 ```
 
-The first five years give $k$ = `r round(k_halves["first_half", "k"], 3)` per year (95% CI `r round(k_halves["first_half", "lower"], 3)`–`r round(k_halves["first_half", "upper"], 3)`), and the last five give `r round(k_halves["second_half", "k"], 3)` (95% CI `r round(k_halves["second_half", "lower"], 3)`–`r round(k_halves["second_half", "upper"], 3)`). The intervals overlap, and `r round(inside_pi * nrow(second_half))` of the `r nrow(second_half)` second-half samples fall inside the first-half fit's 95% prediction interval. The check passes here, as it should: the synthetic plume was generated from first-order decay at a constant rate of 0.3 per year.
+`r round(inside_pi * nrow(second_half))` of the `r nrow(second_half)` second-half samples fall inside the first-half fit's 95% prediction interval, so the check passes. It should here, because the synthetic plume was generated from first-order decay at a constant rate.
 
-Even so, the first half alone would have put the cleanup date at `r round(time_to_goal_first, 1)` years after removal, against `r round((coef(fit_plume)[[1]] - log(5)) / k_point, 1)` years from the full record (next section). A shorter record gives a wider interval on $k$ and so a less certain forecast, and at real sites the process itself can change partway through the record. McHugh et al.'s results suggest that at many real sites, the rate from earlier monitoring is a poor guide to the rate that follows. Where it fails, the forecast is not supported, however well the line fits the record so far.
-
-### Answering the question: time to the cleanup goal
+### The answer: time to the cleanup goal
 
 ```{r}
 #| label: plume-time-to-goal
@@ -445,11 +418,7 @@ ggplot() +
   theme(legend.position = "right")
 ```
 
-At the fitted rate, the well reaches a 5 µg/L goal about `r round(time_to_goal, 1)` years after source removal; the 95% confidence band crosses the goal between `r round(time_to_goal_range[1], 1)` and `r round(time_to_goal_range[2], 1)` years. That range covers uncertainty in the fitted line only. It does not cover the decline slowing later, which is a question about the process, not the fit.
-
-This is a projection past the end of the record, which the rest of this site does not attempt. The process is what allows it. A GAM or LOESS curve describes the record it was fit to and says nothing about what comes after. A first-order rate describes a process expected to continue after the last sample, as long as the conditions above still hold. For that reason the estimate should be updated as new monitoring data arrives, not treated as fixed.
-
-The same rate can also be fit for one question and not another. In soil-column work on groundwater recharge, Regnery et al. (2015) found that first-order rate constants gave a rough estimate of overall removal, but were unreliable for tracking how concentrations changed along the flow path for compounds sensitive to redox conditions. Whether $k$ is good enough depends on what it will be used to answer.
+At the fitted rate, the well reaches 5 µg/L about `r round(time_to_goal, 1)` years after source removal, with the 95% confidence band crossing the goal between `r round(time_to_goal_range[1], 1)` and `r round(time_to_goal_range[2], 1)` years. Unlike the Total Phosphorus projection, this one is reportable, because the process says the decline continues after the last sample and both checks support it. The range covers uncertainty in the fitted line only, not a change in the process, so the estimate should be updated as monitoring continues.
 
 ## When a process-based model is justified
 
@@ -459,7 +428,7 @@ Total Phosphorus and the plume differ in a few specific ways. Those differences 
 2. **Does the answer need to reach past the record?** If not, a description of the record is usually enough, and a GAM gives one without claiming a process. If so, only a supported process can justify where the curve goes.
 3. **Is there a known event or starting point?** Source removal starts the clock for a decay curve. Without one, a model's timing parameters, such as breakpoints or a logistic midpoint, are fitted to the shape alone.
 4. **Does one process, or one kind of process, dominate?** Losses after source removal do. Total Phosphorus's mix of loading, flow, sediment release and uptake does not. Many overlapping influences of similar size point away from a single process-based curve.
-5. **Does the process predict something checkable, and does the record pass?** For first-order decay: a straight line on the log scale, and an early-record rate that predicts the later record. If a check fails, the process does not hold for this record, however well the curve tracks the points.
+5. **Does the process predict something checkable, and does the record pass?** For first-order decay: a straight line on the log scale, and an early-record rate that predicts the later record.
 
 When these point to a known process, the process-based model is the stronger choice: its parameters answer the question directly, can be compared across sites, and, within the process's limits, can be projected forward. When they do not, a GAM's description of the record is the more defensible report.
 
@@ -469,7 +438,7 @@ A fit is not an explanation. A model is chosen by the question, by what is known
 
 For Total Phosphorus, the process is unknown and the question is about the observed record. A logistic curve, a two-breakpoint piecewise model and a GAM fit it about equally well. The first two each tell a story, a ceiling or a pair of event dates, that the record cannot confirm, even though this synthetic record was in fact generated from a logistic curve. Projected past the record, the GAM becomes unstable and the logistic curve stays flat only because its formula requires it. With an unknown process and no need to forecast, the GAM is the more defensible model for this record. Its report is that the record changed (smooth term $p$ < 0.001); that it rose from about year `r sprintf("%.1f", min(rising$year_frac))` to year `r sprintf("%.1f", max(rising$year_frac))` at an average of `r pct(rise_slope[["slope"]])` per year (95% CI `r pct(rise_slope[["lower"]])` to `r pct(rise_slope[["upper"]])`); and that no change since then can be told apart from zero (average slope `r pct(plateau_slope[["slope"]])` per year, 95% CI `r pct(plateau_slope[["lower"]])` to `r pct(plateau_slope[["upper"]])`).
 
-For the plume, a known process and a question that reaches past the record justify a first-order model. Its parameter answers the question directly, a cleanup date about `r round(time_to_goal, 1)` years after removal (`r round(time_to_goal_range[1], 1)`–`r round(time_to_goal_range[2], 1)` years from the confidence band), and the record passes both the straight-line check and the split-record check. Even then, the projection holds only as long as the process does, and should be updated as monitoring continues.
+For the plume, a known process and a question that reaches past the record justify a first-order model. Its parameter answers the question directly, a cleanup date about `r round(time_to_goal, 1)` years after removal (`r round(time_to_goal_range[1], 1)`–`r round(time_to_goal_range[2], 1)` years from the confidence band), and the record passes both the straight-line check and the split-record check.
 
 Two things would change the Total Phosphorus choice: a documented event on a known date, which moves the record to [Piecewise Regression](piecewise-regression.qmd) with the break fixed at that date, or independent evidence for a process together with a question that reaches past the record.
 
@@ -478,13 +447,9 @@ The same reasoning applies across this site. Each method chapter matched a model
 ## References
 
 - Beven, K. (2006). A manifesto for the equifinality thesis. *Journal of Hydrology*, 320(1–2), 18–36. https://doi.org/10.1016/j.jhydrol.2005.07.007
-- Hirsch, R.M., Slack, J.R., and Smith, R.A. (1982). Techniques of trend analysis for monthly water quality data. *Water Resources Research*, 18(1), 107–121.
 - Hirsch, R.M., Alexander, R.B., and Smith, R.A. (1991). Selection of methods for the detection and estimation of trends in water quality. *Water Resources Research*, 27(5), 803–813.
 - Kelly (Letcher), R.A., Jakeman, A.J., et al. (2013). Selecting among five common modelling approaches for integrated environmental assessment and management. *Environmental Modelling & Software*, 47, 159–181.
-- McHugh, T.E., Newell, C.J., et al. (2023). Forecasting groundwater remediation timeframes: Site-specific temporal monitoring results may not predict future performance. *Groundwater Monitoring & Remediation*. https://doi.org/10.1111/gwmr.12609
 - Muggeo, V.M.R. (2008). segmented: An R package to fit regression models with broken-line relationships. *R News*, 8(1), 20–25.
-- Murphy, R.R., Perry, E., Harcum, J., and Keisman, J. (2019). A Generalized Additive Model approach to evaluating water quality: Chesapeake Bay case study. *Environmental Modelling & Software*, 118, 1–13.
 - Newell, C.J., Rifai, H.S., Wilson, J.T., Connor, J.A., Aziz, J.A., and Suarez, M.P. (2002). *Calculation and Use of First-Order Rate Constants for Monitored Natural Attenuation Studies*. Ground Water Issue, EPA/540/S-02/500. U.S. Environmental Protection Agency.
-- Regnery, J., Wing, A.D., Alidina, M., and Drewes, J.E. (2015). Biotransformation of trace organic chemicals during groundwater recharge: How useful are first-order rate constants? *Journal of Contaminant Hydrology*, 179, 65–75.
 - Simpson, G.L. (2018). Modelling palaeoecological time series using generalised additive models. *Frontiers in Ecology and Evolution*, 6, 149.
 - Wood, S.N. (2017). *Generalized Additive Models: An Introduction with R*, Second Edition. CRC Press.
