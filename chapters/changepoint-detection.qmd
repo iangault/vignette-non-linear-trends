@@ -8,6 +8,7 @@ subtitle: "Specific Conductance — a level shift at an unknown point"
 #| include: false
 library(dplyr)
 library(ggplot2)
+library(patchwork)
 library(strucchange)
 library(lmtest)
 source("R/utils.R")
@@ -21,17 +22,49 @@ cond <- non_linear_wq |> filter(analyte == "Specific Conductance")
 
 That's the **piecewise-constant** case from [Piecewise Regression](piecewise-regression.qmd)'s three-stage progression: each segment gets its own flat mean, no slope term on either side. **Changepoint detection** fits that same piecewise-constant model, but treats the knot's location as unknown and estimates it from the data, rather than fixing it in advance the way that chapter's progression assumed.
 
-The `strucchange` package provides that search. Given a formula and a series, it tests whether a break exists at all, locates it if so, and reports a confidence interval on where — three tools that will be explored through this chapter (`Fstats()`/`sctest()`, `breakpoints()`, and `confint()`).
+The `strucchange` package (Zeileis et al., 2002; `strucchange` documentation) provides that search. Given a formula and a series, it tests whether a break exists at all, locates it if so, and reports a confidence interval on where — three tools that will be explored through this chapter (`Fstats()`/`sctest()`, `breakpoints()`, and `confint()`).
 
 ### Why a segment's mean counts as an OLS fit
 
 In R's formula notation, the `1` on the right-hand side of `y ~ 1` stands for the intercept term alone — no regressor, just $y_i = \beta_0 + \varepsilon_i$. Fit that model, `lm(y ~ 1)`, on a set of points and it estimates the one coefficient, $\hat\beta_0$, by minimizing the sum of squared residuals $\sum (y_i - \hat\beta_0)^2$.
 
-Differentiate with respect to $\hat\beta_0$, set it to zero, and the minimizer is $\hat\beta_0 = \bar y$ — the sample mean. An intercept-only regression on a subset of points and the arithmetic mean of that subset are the same number, arrived at by the same minimization, just described two different ways — so each segment's mean is legitimately an OLS fit rather than an approximation to one. `lm(log(result) ~ period)` in the Results section below does the same thing with one more coefficient — a shared baseline plus an offset for the second segment — still fit by minimizing squared residuals, which is why it's still legitimate to call this a regression rather than a two-sample test dressed up as one.
+Differentiate with respect to $\hat\beta_0$, set it to zero, and the minimizer is $\hat\beta_0 = \bar y$ — the sample mean. An intercept-only regression on a subset of points and the arithmetic mean of that subset are the same number, arrived at by the same minimization, just described two different ways — so each segment's mean is legitimately an OLS fit rather than an approximation to one (DSCI 562). `lm(log(result) ~ period)` in the Results section below does the same thing with one more coefficient — a shared baseline plus an offset for the second segment — still fit by minimizing squared residuals, which is why it's still legitimate to call this a regression rather than a two-sample test dressed up as one.
+
+```{r}
+#| label: toy-intercept-mean
+#| echo: false
+#| fig-cap: "Eight illustrative points, not monitoring data. With only an intercept, OLS fits a flat line, and the residuals above and below it sum to zero only when the line sits at the sample mean. `lm(y ~ 1)` and `mean(y)` therefore return the same value."
+toy <- data.frame(i = 1:8, y = c(4.2, 5.6, 4.8, 6.1, 5.0, 3.9, 5.4, 4.6))
+toy_fit <- lm(y ~ 1, data = toy)
+b0 <- unname(coef(toy_fit))
+toy$res <- resid(toy_fit)
+toy$side <- ifelse(toy$res > 0, "Above the line", "Below the line")
+above <- sum(toy$res[toy$res > 0])
+below <- sum(toy$res[toy$res < 0])
+
+toy_label <- sprintf(
+  "coef(lm(y ~ 1)) = %.2f\nmean(y) = %.1f / %d = %.2f\nresiduals: +%.2f and %.2f, sum = 0",
+  b0, sum(toy$y), nrow(toy), mean(toy$y), above, below
+)
+
+ggplot(toy, aes(i, y)) +
+  geom_segment(aes(xend = i, yend = b0, colour = side), linewidth = 0.8) +
+  geom_hline(yintercept = b0, colour = "steelblue", linewidth = 1.1) +
+  geom_point(size = 2.4) +
+  annotate("label", x = 8.4, y = 6.35, label = toy_label, hjust = 1, vjust = 1, size = 3.5) +
+  scale_colour_manual(values = c("Above the line" = "#B5651D", "Below the line" = "grey45"), name = NULL) +
+  scale_x_continuous(breaks = 1:8) +
+  coord_cartesian(ylim = c(3.7, 6.4)) +
+  labs(x = "Observation", y = "y", title = "An intercept-only regression fits the sample mean") +
+  nlt_theme +
+  theme(legend.position = "bottom")
+```
 
 ### Stated as a model
 
-For a single break at position $\tau$ in the observation sequence, the flat-mean version of this is
+Zeileis et al. (2002) set up the problem for a general linear regression, $y_i = x_i^\top \beta_i + u_i$, where a single shift means the coefficient vector takes one value, $\beta_A$, up to a change point and another, $\beta_B$, after it. This chapter needs the simplest case of that setup. The regression has only an intercept ($x_i = 1$), so each coefficient vector reduces to a segment mean, and the response is $y_i = \log(\text{result})$.
+
+For a single break at position $\tau$ in the observation sequence, that flat-mean version is
 
 $$y_i = \mu_1 \, \mathbb{1}(i \le \tau) + \mu_2 \, \mathbb{1}(i > \tau) + \varepsilon_i,$$
 
@@ -39,15 +72,66 @@ two segment means and an indicator for which segment each observation falls in �
 
 $$\hat\tau = \arg\min_{\tau} \; \mathrm{RSS}(\tau), \qquad \mathrm{RSS}(\tau) = \sum_{i \le \tau} (y_i - \bar y_{\le \tau})^2 + \sum_{i > \tau} (y_i - \bar y_{> \tau})^2,$$
 
-$\mathrm{RSS}(\tau)$ is the total squared residual left over once each segment is fit to its own mean — the same quantity OLS always minimizes, just evaluated separately on either side of a candidate split $\tau$.
+$\mathrm{RSS}(\tau)$ is the total squared residual left over once each segment is fit to its own mean — the same quantity OLS always minimizes, just evaluated separately on either side of a candidate split $\tau$. This is the single-break, intercept-only case of the segmented regression whose RSS `breakpoints()` minimizes (`strucchange` documentation).
 
-$\hat\tau$ is whichever split leaves the smallest such total, out of every admissible split. `strucchange::breakpoints()`, used below to locate the break in Specific Conductance's record, automates that search: it fits the OLS regression at every admissible location (via the dynamic-programming algorithm of Bai and Perron, 2003) and returns whichever minimizes $\mathrm{RSS}(\tau)$.
+```{r}
+#| label: toy-rss-tau
+#| echo: false
+#| fig-width: 8.5
+#| fig-height: 4.2
+#| fig-cap: 'Fourteen illustrative points, not monitoring data. Each candidate split is fit with its own two segment means, and $\hat\tau$ is the split that leaves the smallest total squared residual. This illustration checks every split; `breakpoints()` by default requires at least 15% of the record on each side of a break.'
+toy_step <- data.frame(i = 1:14, y = c(4.8, 5.3, 4.6, 5.1, 5.4, 4.7, 5.0, 5.2, 6.9, 7.3, 6.7, 7.1, 7.4, 6.8))
+toy_n <- nrow(toy_step)
+
+split_rss <- function(tau, y) {
+  sum((y[1:tau] - mean(y[1:tau]))^2) + sum((y[(tau + 1):length(y)] - mean(y[(tau + 1):length(y)]))^2)
+}
+rss_curve <- data.frame(tau = 1:(toy_n - 1))
+rss_curve$rss <- vapply(rss_curve$tau, split_rss, numeric(1), y = toy_step$y)
+tau_hat <- rss_curve$tau[which.min(rss_curve$rss)]
+toy_mu <- c(mean(toy_step$y[1:tau_hat]), mean(toy_step$y[(tau_hat + 1):toy_n]))
+
+toy_step$fitted <- ifelse(toy_step$i <= tau_hat, toy_mu[1], toy_mu[2])
+toy_step$side <- ifelse(toy_step$y > toy_step$fitted, "Above the line", "Below the line")
+
+toy_segs <- data.frame(
+  x = c(0.5, tau_hat + 0.5), xend = c(tau_hat + 0.5, toy_n + 0.5), y = toy_mu,
+  lab = sprintf("hat(mu)[%d] == %.2f", 1:2, toy_mu),
+  lx = c((tau_hat + 1) / 2, (tau_hat + toy_n + 1) / 2), ly = toy_mu + c(0.75, -0.75)
+)
+
+p_means <- ggplot(toy_step, aes(i, y)) +
+  geom_segment(aes(xend = i, yend = fitted, colour = side), linewidth = 0.8) +
+  geom_segment(data = toy_segs, aes(x = x, xend = xend, y = y, yend = y),
+               colour = "steelblue", linewidth = 1.1, inherit.aes = FALSE) +
+  geom_vline(xintercept = tau_hat + 0.5, linetype = "dashed") +
+  geom_point(size = 2.2) +
+  geom_text(data = toy_segs, aes(x = lx, y = ly, label = lab), parse = TRUE, size = 3.6, inherit.aes = FALSE) +
+  scale_colour_manual(values = c("Above the line" = "#B5651D", "Below the line" = "grey45"), name = NULL) +
+  scale_x_continuous(breaks = seq(2, toy_n, 2)) +
+  labs(x = "Observation", y = "y", title = "Two means, split at the best break") +
+  nlt_theme +
+  theme(legend.position = "bottom")
+
+p_rss <- ggplot(rss_curve, aes(tau, rss)) +
+  geom_line(colour = "grey45") +
+  geom_point(size = 2) +
+  annotate("point", x = tau_hat, y = min(rss_curve$rss), colour = "steelblue", size = 3.6) +
+  annotate("text", x = tau_hat - 1.5, y = min(rss_curve$rss), label = sprintf("hat(tau) == %d", tau_hat), parse = TRUE, size = 3.6) +
+  scale_x_continuous(breaks = seq(1, toy_n - 1, 2)) +
+  labs(x = expression("Candidate split " * tau), y = expression(RSS(tau)), title = "RSS at every candidate split") +
+  nlt_theme
+
+p_means + p_rss
+```
+
+$\hat\tau$ is whichever split leaves the smallest such total, out of every admissible split. `strucchange::breakpoints()`, used below to locate the break in Specific Conductance's record, automates that search: it fits the OLS regression at every admissible location, using a dynamic-programming algorithm (`strucchange` documentation), and returns whichever minimizes $\mathrm{RSS}(\tau)$.
 
 ### The point of doing any of this
 
-This analysis answers the same question a client or regulator would ask about a suspected operational change: did conductance step up, and by how much, and when? What **changepoint detection** adds over an eyeballed read is a formal test behind each part of that answer — a significance test for whether a break exists at all (`sctest()` below), a location with a confidence interval, and a percentage change in level with its own p-value.
+This analysis answers the same question a client or regulator would ask about a suspected operational change: did conductance step up, and by how much, and when? What **changepoint detection** adds over an eyeballed read is a formal test behind each part of that answer — a significance test for whether a break exists at all (`sctest()` below), a location with a confidence interval, and the size of the change in level.
 
-The situation this method is built for is a suspected step change with an unrecorded date — an operational change, a new discharge starting, a permit-limit revision, a lab or method switch — where there's reason to think something shifted but no on-record date to seed a local search with. `segmented()`, from the [piecewise regression chapter](piecewise-regression.qmd), needs a plausible starting guess close to the true knot to converge correctly; `breakpoints()`'s exhaustive search doesn't need one, which makes it the better first-pass tool for an undocumented shift, or for screening many series at once without eyeballing each one first.
+The situation this method is built for is a suspected step change with an unrecorded date — an operational change, a new discharge starting, a permit-limit revision, a lab or method switch — where there's reason to think something shifted but no on-record date to seed a local search with. The last of those is a monitoring-program cause rather than a change in the water: trend methods assume that sample collection, laboratory and reporting methods stayed constant over the record, or that any change was documented and corrected for (Hirsch et al., 1991), so a detected step is worth checking against the lab's records before it is read as an environmental change. `segmented()`, from the [piecewise regression chapter](piecewise-regression.qmd), needs a starting guess supplied for the breakpoint and searches locally from there (Muggeo, 2008); `breakpoints()`'s exhaustive search doesn't need one, which makes it the better first-pass tool for an undocumented shift, or for screening many series at once without eyeballing each one first.
 
 ## The shape in the record
 
@@ -65,7 +149,7 @@ Flat, then a step up, with no visible slope change on either side of the jump.
 
 ## Is there a break at all
 
-Before locating anything, it's worth testing whether a break exists at all, rather than assuming one and going straight to where it is. The **`supF` test** scans every candidate split point and asks whether the best of them fits meaningfully better than a single flat mean across the whole record.
+Before locating anything, it's worth testing whether a break exists at all, rather than assuming one and going straight to where it is. The **`supF` test** (Zeileis et al., 2002) computes an F statistic at each candidate split, by default across the central 70% of the record, and asks whether the largest of them is bigger than expected if the mean were constant throughout.
 
 ```{r}
 #| label: cond-fstats
@@ -77,23 +161,98 @@ The test rejects the no-break null decisively ($p < 2.2 \times 10^{-16}$): some 
 
 ## Locating it, and choosing the right model form
 
-Two things need to be uncovered: how many breaks the record has, and whether each segment should be modelled as a flat mean or as its own slope. `breakpoints()` fits the optimal partition for a given number of breaks; BIC is used twice below to make both choices — once across increasing break counts, and once between the two segment forms.
+`breakpoints()` finds the best split for a given number of breaks and a given segment form, but those two settings still have to be chosen. That leaves two questions:
 
-### Flat mean or sloped segments
+1) How many breaks does the record have?
+2) Is each segment a flat mean, or does it have its own slope?
 
-An **intercept-only** fit, `bp_mean` below (`breakpoints(log(result) ~ 1)`), assumes a **flat mean** within each segment. If the data actually trended up or down within a segment, that flat line wouldn't track it.
+### How BIC helps answer both
 
-That assumption belongs to the formula, not to `breakpoints()` itself — the function accepts any regression formula, so it doesn't force flat segments over sloped ones or the reverse. Handed `~ year_frac` instead, it fits `bp_slope` (`breakpoints(log(result) ~ year_frac)`), a non-continuous piecewise-linear model with its own slope and intercept per segment, the knot still found by search.
+**BIC** (Bayesian information criterion) scores a fitted model by how much variation it leaves unexplained, plus a penalty for each parameter it uses. A more flexible model usually lowers RSS, so RSS alone tends to favour the most complex option (DSCI 561). The penalty means added flexibility has to earn its place, and the model with the lower BIC is preferred.
 
-Trying both and letting BIC pick between them, below, is how the choice gets made without assuming it upfront.
+BIC is used here to choose between candidate models, not as a significance test. The `supF` test above asks whether a break exists; BIC asks which description of the record to carry forward.
 
-### Comparing model forms with BIC
+### How many breaks
 
-**BIC** scores a fitted model by its goodness of fit minus a penalty for each added parameter, so it's the standard way to compare two models with different numbers of parameters without the more flexible one automatically winning just for having more of them; the lower-BIC model is preferred. If slopes actually mattered here, `bp_slope`'s better fit would outweigh its extra-parameter penalty and win on BIC, and the write-up would report two rates the way [Piecewise Regression](piecewise-regression.qmd) does, instead of one level jump.
+A **breakpoint** is a position in the record where the regression coefficients change. `breakpoints()` fits the best split for each break count, up to the five that its default minimum segment size allows here, and plotting the fit shows RSS and BIC across those counts (Narasimha, n.d.).
+
+```{r}
+#| label: cond-break-count
+bp_mean <- breakpoints(log(result) ~ 1, data = cond)
+plot(bp_mean, main = "Specific Conductance: BIC and RSS by number of breaks")
+```
+
+BIC falls sharply from no breaks (-79.1) to one (-397.3), then rises with each added break (-387.9 at two). RSS shows why: one break removes most of the unexplained variation (4.54 down to 0.465), and a second barely changes it (0.463). The record is best described with one break.
+
+### Flat means or sloped segments
+
+The break count says where the regression changes; the formula says what is allowed to change there. This is a comparison of two descriptions of the record, again made with BIC:
+
+- **`bp_mean`** (`log(result) ~ 1`) has only an intercept, so each segment is a **flat mean** and only the level can change. If the data trended up or down within a segment, that flat line wouldn't track it.
+- **`bp_slope`** (`log(result) ~ year_frac`) gives each segment its own intercept and slope, a non-continuous piecewise-linear model with the break still found by search.
+
+If slopes mattered here, `bp_slope`'s better fit would outweigh its extra-parameter penalty and win on BIC, and the write-up would report two rates the way [Piecewise Regression](piecewise-regression.qmd) does, instead of one level jump.
+
+```{r}
+#| label: toy-form-bic
+#| echo: false
+#| fig-width: 8.5
+#| fig-height: 6
+#| fig-cap: "Two illustrative series of 24 points, not monitoring data, each fit with one break. Blue marks the lower-BIC form for that series. For a level shift, added slopes barely reduce RSS and BIC prefers flat means; when the segments have real slopes, the improvement in fit outweighs the penalty."
+local({
+  set.seed(562)
+  n_pts <- 24
+  x <- seq_len(n_pts)
+  noise <- rnorm(n_pts, sd = 0.22)
+  series <- list(
+    "True shape: level shift" = ifelse(x <= 12, 5, 7) + noise,
+    "True shape: slope in each segment" = ifelse(x <= 12, 4.6 + 0.16 * x, 8.2 - 0.14 * (x - 12)) + noise
+  )
+  forms <- list("Flat means: y ~ 1" = y ~ 1, "Sloped segments: y ~ x" = y ~ x)
+
+  fit_one <- function(sname, fname) {
+    d <- data.frame(x = x, y = series[[sname]])
+    bp <- breakpoints(breakpoints(forms[[fname]], data = d), breaks = 1)
+    tau <- bp$breakpoints
+    d$seg <- ifelse(d$x <= tau, "a", "b")
+    d$fitted <- if (fname == names(forms)[1]) ave(d$y, d$seg) else fitted(lm(y ~ seg * x, data = d))
+    d$series <- sname
+    d$form <- fname
+    d$tau <- tau
+    d$bic <- BIC(bp)
+    d$rss <- sum((d$y - d$fitted)^2)
+    d
+  }
+
+  all_fits <- do.call(rbind, unlist(
+    lapply(names(series), function(s) lapply(names(forms), function(f) fit_one(s, f))),
+    recursive = FALSE
+  ))
+  all_fits$series <- factor(all_fits$series, levels = names(series))
+  all_fits$form <- factor(all_fits$form, levels = names(forms))
+
+  sumry <- unique(all_fits[c("series", "form", "tau", "bic", "rss")])
+  sumry$wins <- ave(sumry$bic, sumry$series, FUN = function(b) b == min(b)) == 1
+  sumry$lab <- sprintf("RSS = %.2f\nBIC = %.1f%s", sumry$rss, sumry$bic, ifelse(sumry$wins, " (lower)", ""))
+  all_fits <- merge(all_fits, sumry[c("series", "form", "wins")])
+
+  print(
+    ggplot(all_fits, aes(x, y)) +
+      geom_point(size = 1.8) +
+      geom_line(aes(y = fitted, group = seg, colour = wins), linewidth = 1.1) +
+      geom_vline(data = sumry, aes(xintercept = tau + 0.5), linetype = "dashed") +
+      geom_label(data = sumry, aes(x = 0.5, y = Inf, label = lab), hjust = 0, vjust = 1.1, size = 3.1, inherit.aes = FALSE) +
+      scale_colour_manual(values = c(`TRUE` = "steelblue", `FALSE` = "grey55"), guide = "none") +
+      scale_y_continuous(expand = expansion(mult = c(0.05, 0.4))) +
+      facet_grid(series ~ form) +
+      labs(x = "Observation", y = "y", title = "Same break search, two segment forms") +
+      nlt_theme
+  )
+})
+```
 
 ```{r}
 #| label: cond-breakpoints
-bp_mean <- breakpoints(log(result) ~ 1, data = cond)
 bp_slope <- breakpoints(log(result) ~ year_frac, data = cond)
 
 summary(bp_mean)
@@ -132,11 +291,11 @@ summary(fit)
 
 R codes `period` against its first level, `before`, so `(Intercept)` is the mean of `log(result)` in the `before` segment (5.70), and `periodafter` is the difference the `after` segment adds to it (0.344). Both are on the log scale and in units of log(result), which is why they don't read as a plain before/after comparison yet.
 
-The intercept's p-value isn't of interest: it tests whether the before-segment mean is zero, a null with no substantive meaning here (`log(result) = 0` would mean the raw analyte equals 1, an arbitrary reference point, not "no effect"). `periodafter`'s p-value is the one that matters — it tests whether the after segment differs from the before segment at all, which is the claim this section is making, and it's highly significant ($p < 2\times10^{-16}$).
+The intercept's p-value isn't of interest: it tests whether the before-segment mean is zero, a null with no substantive meaning here (`log(result) = 0` would mean the raw analyte equals 1, an arbitrary reference point, not "no effect"). `periodafter`'s p-value ($p < 2\times10^{-16}$) needs care. It tests whether the after segment differs from the before segment as if the split had been fixed in advance, but the split was placed where `breakpoints()` found the two means to differ most. Choosing the break date from the same data, at the point that maximizes the difference between periods, biases the significance level of a before/after test (Hirsch et al., 1991), so this p-value overstates the evidence. The valid test that a break exists is the `supF` test above, which accounts for having searched across the candidate splits. `fit` is used here for the size of the jump, not as a second test of whether there is one.
 
 ### Back-transforming the estimates
 
-`fit` established that the two segments differ —and by how much —on the log scale, but a client or regulator wants the answer in the analyte's own units: a level and a percent change, not a log-scale coefficient. Getting there takes two steps: recover each segment's mean in raw units, then convert the difference between them to a percentage.
+`fit` gives how much the two segments differ on the log scale, but a client or regulator wants the answer in the analyte's own units: a level and a percent change, not a log-scale coefficient. Getting there takes two steps: recover each segment's mean in raw units, then convert the difference between them to a percentage.
 
 ```{r}
 #| label: cond-segment-pct-jump
@@ -151,7 +310,7 @@ pct_jump
 
 `exp(means)` returns the two segment means in the analyte's raw units: about 299 before, about 422 after. These are geometric means — the back-transform of an average taken on the log scale — not arithmetic means of the raw values, which is the correct summary here since `bp_mean` and `fit` were both fit on `log(result)`.
 
-`exp(diff(means))` instead exponentiates the 0.344 log-scale difference between the two means, converting it to a ratio between segments rather than to either mean individually; subtracting 1 turns that ratio into a percent change — roughly a 41% jump.
+`exp(diff(means))` instead exponentiates the 0.344 log-scale difference between the two means, converting it to a ratio between segments rather than to either mean individually; subtracting 1 turns that ratio into a percent change — roughly a 41% jump. This $(\exp(B) - 1) \times 100$ conversion of a log-scale step size is the standard one in water-quality trend analysis (Hirsch et al., 1991).
 
 ### Visualizing the fit
 
@@ -220,4 +379,9 @@ Locating the break statistically is only half of what a regulator or client actu
 ## References
 
 - UBC Master of Data Science, *DSCI 561: Regression I*.
-- UBC Master of Data Science, *DSCI 562: Regression II*. [Course notes](https://ubc-mds.github.io/DSCI_562_regr-2/).
+- UBC Master of Data Science, *DSCI 562: Regression II*. [Lecture 6: Local Regression](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture6_local_regression.html).
+- Hirsch, R.M., Alexander, R.B., and Smith, R.A. (1991). Selection of methods for the detection and estimation of trends in water quality. *Water Resources Research*, 27(5), 803–813.
+- Muggeo, V.M.R. (2008). segmented: An R package to fit regression models with broken-line relationships. *R News*, 8(1), 20–25.
+- Zeileis, A., Leisch, F., Hornik, K., and Kleiber, C. (2002). strucchange: An R package for testing for structural change in linear regression models. *Journal of Statistical Software*, 7(2), 1–38. https://doi.org/10.18637/jss.v007.i02
+- *strucchange: Testing, Monitoring, and Dating Structural Changes* (R package version 1.6-0). RDocumentation. https://www.rdocumentation.org/packages/strucchange/versions/1.6-0
+- Narasimha, V.L. (n.d.). *Learning change point analysis*. RPubs. https://rpubs.com/narasimhagvl/change_point

@@ -41,7 +41,7 @@ Two closing chapters turn from fitting to choosing. [Linear vs. Nonlinear Compar
 
 ## What ordinary least squares is actually doing
 
-Ordinary least squares models the conditional mean of the response given the regressors, not the response itself. For a single predictor:
+Ordinary least squares models the conditional mean of the response given the regressors, not the response itself (DSCI 562). For a single predictor:
 
 $$y_i = \beta_0 + \beta_1 x_i + \varepsilon_i, \qquad \varepsilon_i \sim N(0, \sigma^2) \text{ i.i.d.} \qquad (1)$$
 
@@ -56,7 +56,7 @@ The core assumptions, roughly in order of how much trouble breaking them causes:
 
 ## A model is an abstraction, not a recovery
 
-Every method here — linear, piecewise, LOESS, GAM — is a different simplification of an unknown true process. The relevant question is which simplification is adequate for the decision at hand and cheap enough to explain and defend. A straight line is a fine abstraction when the data really is monotonic; it becomes actively misleading once the shape genuinely bends.
+Every method here — linear, piecewise, LOESS, GAM — is a different simplification of an unknown true process. Environmental modelling has largely given up the assumption that a single correct representation of a system can be identified from the data normally available (Beven, 2006). The relevant question is which simplification is adequate for the decision at hand and cheap enough to explain and defend. A straight line is a fine abstraction when the data really is monotonic; it becomes actively misleading once the shape genuinely bends.
 
 ## Inference vs. prediction
 
@@ -81,14 +81,14 @@ Model choice is a tradeoff along three axes:
 The methods on this site sit on a spectrum from parametric to nonparametric, and the spectrum tracks who is deciding the functional form:
 
 - **Parametric** (linear, piecewise) — the analyst picks a small, fixed number of parameters and a specific form (a slope, a hinge). Highly interpretable and cheap to estimate, but correct only if the true shape matches the assumed form.
-- **Nonparametric, used diagnostically** (k-nearest-neighbors, LOESS) — no fixed functional form; the fit adapts to local structure so the analyst can see the shape before committing to one. Needs more data to estimate as reliably as a correctly-specified parametric model, and doesn't by itself reduce to a handful of reportable numbers or a significance test.
+- **Nonparametric, used diagnostically** (k-nearest-neighbors, LOESS) — no fixed functional form; the fit adapts to local structure so the analyst can see the shape before committing to one. Needs more data to estimate as reliably as a correctly-specified parametric model, and doesn't by itself reduce to a handful of reportable numbers or a significance test. Reviews of water-quality trend methods describe smoothing in the same terms: flexible, but still largely descriptive (Esterby, 1996).
 - **Semi-parametric** (GAM) — smooth basis functions like LOESS, but with a fitted penalty controlling how much wiggle is allowed, plus proper inferential machinery LOESS doesn't provide. This is the route for shapes like Total Copper's step-and-spike pattern, where nothing about the system fixes the curve's form in advance. When something does, such as first-order decay after a source is removed, a parametric model built on that mechanism is the stronger choice ([Mechanism vs. Shape](chapters/mechanism-vs-shape.qmd)).
 
 ### Nonparametric definitions
 
 "Nonparametric" has two distinct meanings in trend analysis, and this site only uses one of them.
 
-In **hypothesis testing**, a nonparametric test is one that makes no assumption about the **distribution of the errors**. **Mann-Kendall** is the standard example: it works on ranks rather than raw values, so it doesn't require normally-distributed residuals the way a t-test does. But it still makes a claim about the **functional form**: it assumes the relationship being tested is **monotonic**, consistently up or consistently down. It has no way to represent a plateau or a bend, because "monotonic" is the shape built into the test — it can flag Total Chloride's straight-line trend, but on Total Phosphorus's rise-then-plateau it would just report a weaker or absent trend, not the plateau itself.
+In **hypothesis testing**, a nonparametric test is one that makes no assumption about the **distribution of the errors**. **Mann-Kendall** is the standard example: it works on ranks rather than raw values, so it doesn't require normally-distributed residuals the way a t-test does. But it still makes a claim about the **functional form**: it assumes the relationship being tested is **monotonic**: a change with no reversals of direction, which may happen steadily, in steps, or in any other pattern that does not change sign (Hirsch et al., 1991). It has no way to describe what shape that change took, because "monotonic" is the only shape built into the test. It can flag Total Chloride's straight-line trend, and Total Phosphorus's rise-then-plateau is monotonic too, so it would likely flag that increase as well, without showing that the record levelled off. A record that reverses direction, like Total Copper's, is where it can fail outright: a non-monotonic change can go undetected by methods sensitive only to monotonic change (Esterby, 1996).
 
 In **curve-fitting**, which is how "nonparametric" is used everywhere else on this site, it means there's no single equation tying the fitted value at one $x$ to the fitted value at another — a nonparametric fit like k-NN or LOESS **estimates the curve's height locally** from nearby data points instead, with no commitment to any fixed shape, monotonic or not. That's what lets it represent a plateau or a bend as easily as a straight line. It's the **functional form** that's left unassumed here, not the error distribution — the opposite of what "nonparametric" leaves unassumed in the hypothesis-testing sense above.
 
@@ -98,7 +98,7 @@ Model choice changes what gets reported and what action follows. A plateau misre
 
 ## Start from the goal, not the method
 
-The default reflex, faced with any time series, is to fit a straight line through it. That reflex is itself a form of model misspecification whenever the record isn't actually a straight line. This site offers a set of starting points, one per goal, each demonstrated on a case study built to need it, rather than one recommended method. The table below maps the goal to the chapter.
+The default reflex, faced with any time series, is to fit a straight line through it. That reflex is itself a form of model misspecification whenever the record isn't actually a straight line. The water-quality trend literature puts the objective first: the suitable method depends on how trend is defined, how the other sources of variability are modelled, the characteristics of the data, and the objectives of the monitoring program (Esterby, 1996). Environmental modelling more broadly starts the same way, with the purpose of the model (Kelly et al., 2013). This site offers a set of starting points, one per goal, each demonstrated on a case study built to need it, rather than one recommended method. The table below maps the goal to the chapter.
 
 [The Regression Framework](chapters/regression-framework.qmd) and [Transformations](chapters/transformations.qmd) aren't tied to any one row above — they're the shared vocabulary and diagnostic checks every method in the table depends on.
 
@@ -106,7 +106,7 @@ The default reflex, faced with any time series, is to fit a straight line throug
 |---|---|---|---|---|
 | I just want to see the shape of the record before committing to any model form | Exploratory | Visualizing local structure with no fitted coefficients | [k-Nearest Neighbors](chapters/knn-regression.qmd) / [LOESS](chapters/loess-smoothing.qmd) | Prediction only, structurally: no coefficient or p-value comes out of either one. [GAM](chapters/gam.qmd) adds a significance test without fixing the shape in advance |
 | Is there a real trend at all, or would a flexible model just be fitting noise? | Diagnostic / triage | A general first check, not tied to one shape | [Linear vs. Nonlinear Comparison](chapters/linear-vs-nonlinear-comparison.qmd) | An inference answer: tested against "no added complexity is justified" |
-| A permit change or effluent release may have shifted the slope — how do I quantify a break I can already see? | Confirmatory | Quantifying a break already visible in the record | [Piecewise / Segmented Regression](chapters/piecewise-regression.qmd) | Two slopes and a breakpoint location, each with a confidence interval |
+| A permit change or effluent release on a known date may have shifted the slope. Did it, and by how much? | Confirmatory | Quantifying a slope change around a documented event | [Piecewise / Segmented Regression](chapters/piecewise-regression.qmd) | Two slopes and a breakpoint location, each with a confidence interval, and Davies' test for whether the slope changes at all. A break picked out by eye with no event behind it needs that test, since choosing the break from the data biases an ordinary before/after test (Hirsch et al., 1991) |
 | There may have been a spill that jumped the level to something new, and I don't know when | Forensic | Locating an unknown event from the data alone | [Changepoint Detection](chapters/changepoint-detection.qmd) | A break location found by search, with a confidence interval and a significance test for whether a break exists at all |
 | I have a large dataset with no single knot or known curve to fit, and I need a defensible significance test | General-purpose / flexible-but-inferential | Fitting a smooth curve without assuming its shape in advance | [Generalized Additive Models](chapters/gam.qmd) | A smooth curve with an effective-degrees-of-freedom count and a significance test on the smooth term |
 | The record is seasonal or regularly sampled, and residuals might not be independent (e.g. monthly monitoring) | Assumption check | Corrects a GAM's result rather than posing a new goal | [Generalized Additive Mixed Models](chapters/gamm.qmd) | The same smooth-term test as a GAM, with standard errors that account for correlated residuals |
@@ -145,5 +145,13 @@ ggplot(non_linear_wq |> order_analytes(), aes(date, result)) +
 - UBC Master of Data Science, *DSCI 561: Regression I*.
 - UBC Master of Data Science, *DSCI 562: Regression II*. [Lecture 1: Link Functions and Count Regression](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture1-glm-link-functions-and-count-regression.html), [Lecture 6: Local Regression](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture6_local_regression.html).
 - UBC Master of Data Science, *DSCI 571: Supervised Learning I*. [Lecture 3: k-Nearest Neighbours and SVM RBFs](https://github.com/UBC-MDS/DSCI_571_sup-learn-1/blob/master/lectures/notes/03_kNNs-SVM-RBF.ipynb).
+- UBC Master of Data Science, *DSCI 574: Spatial and Temporal Models*. [Course outline, 2018-19](https://github.com/UBC-MDS/DSCI_574_spat-temp-mod).
+- Beven, K. (2006). A manifesto for the equifinality thesis. *Journal of Hydrology*, 320(1–2), 18–36. https://doi.org/10.1016/j.jhydrol.2005.07.007
+- Esterby, S.R. (1996). Review of methods for the detection and estimation of trends with emphasis on water quality applications. *Hydrological Processes*, 10(2), 127–149.
+- Hirsch, R.M., Alexander, R.B., and Smith, R.A. (1991). Selection of methods for the detection and estimation of trends in water quality. *Water Resources Research*, 27(5), 803–813.
+- Kelly (Letcher), R.A., Jakeman, A.J., et al. (2013). Selecting among five common modelling approaches for integrated environmental assessment and management. *Environmental Modelling & Software*, 47, 159–181.
+- Muggeo, V.M.R. (2008). segmented: An R package to fit regression models with broken-line relationships. *R News*, 8(1), 20–25.
+- Newell, C.J., Rifai, H.S., Wilson, J.T., Connor, J.A., Aziz, J.A., and Suarez, M.P. (2002). *Calculation and Use of First-Order Rate Constants for Monitored Natural Attenuation Studies*. Ground Water Issue, EPA/540/S-02/500. U.S. Environmental Protection Agency.
+- Simpson, G.L. (2018). Modelling palaeoecological time series using generalised additive models. *Frontiers in Ecology and Evolution*, 6, 149.
 - Singh, A. and Singh, A.K. (2015). *ProUCL Version 5.1 Technical Guide: Statistical Software for Environmental Applications for Data Sets with and without Nondetect Observations*. EPA/600/R-07/041. U.S. Environmental Protection Agency, Office of Research and Development.
 - Wood, S.N. (2017). *Generalized Additive Models: An Introduction with R*, Second Edition. CRC Press. Grounds the [GAM](chapters/gam.qmd) and [GAMM](chapters/gamm.qmd) chapters' effective-degrees-of-freedom, `lpmatrix`/prediction-variance, and AR(1)-correlated-residual methodology.
