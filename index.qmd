@@ -19,7 +19,7 @@ non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_ty
 
 I worked in environmental consulting for six years, where a lot of trend analysis still defaults to a straight line through the data because that's what's fast and familiar. Partway through a Master of Data Science, I started running into methods — piecewise regression, changepoint detection, GAMs — that would have changed how I read several records I'd already reported on, if I'd known them going in. This site is my attempt to connect those two sides: write up the methods the way I wish someone had explained them to me before I needed them, grounded in the kind of water-quality data an environmental consultant actually works with day to day.
 
-As recommended by USEPA ProUCL for temporal trends, common practice is to use log-transformed ordinary least squares (OLS) to assess linearity, which I've worked through in a synthetic exercise in a separate repository here: [github.com/iangault/vignette-temporal-trends](https://github.com/iangault/vignette-temporal-trends).
+A common starting point for temporal trends is ordinary least squares on log-transformed concentrations (Hirsch et al., 1991), which I've worked through in a synthetic exercise in a separate repository here: [github.com/iangault/vignette-temporal-trends](https://github.com/iangault/vignette-temporal-trends).
 
 The case studies use simulated data. I used Claude Code to help with drafting and code review, and reviewed and edited everything it produced.
 
@@ -140,18 +140,23 @@ ggplot(non_linear_wq |> order_analytes(), aes(date, result)) +
 - **Total Zinc** — pure noise, no real trend. The other control: the guard against a flexible model manufacturing a trend that isn't there.
 - **Total Copper** — step-like and non-monotonic: up, up again into a brief spike, back down, further down, then a partial recovery. GAM: a shape with no periodic or polynomial pattern for a hand-built OLS feature to fall back on.
 
-## References
+## Site-wide References
 
 - UBC Master of Data Science, *DSCI 561: Regression I*.
 - UBC Master of Data Science, *DSCI 562: Regression II*. [Lecture 1: Link Functions and Count Regression](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture1-glm-link-functions-and-count-regression.html), [Lecture 6: Local Regression](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture6_local_regression.html).
 - UBC Master of Data Science, *DSCI 571: Supervised Learning I*. [Lecture 3: k-Nearest Neighbours and SVM RBFs](https://github.com/UBC-MDS/DSCI_571_sup-learn-1/blob/master/lectures/notes/03_kNNs-SVM-RBF.ipynb).
 - UBC Master of Data Science, *DSCI 574: Spatial and Temporal Models*. [Course outline, 2018-19](https://github.com/UBC-MDS/DSCI_574_spat-temp-mod).
 - Beven, K. (2006). A manifesto for the equifinality thesis. *Journal of Hydrology*, 320(1–2), 18–36. https://doi.org/10.1016/j.jhydrol.2005.07.007
+- Duan, N. (1983). Smearing estimate: a nonparametric retransformation method. *Journal of the American Statistical Association*, 78(383), 605–610. https://doi.org/10.1080/01621459.1983.10478017
 - Esterby, S.R. (1996). Review of methods for the detection and estimation of trends with emphasis on water quality applications. *Hydrological Processes*, 10(2), 127–149.
+- Ferguson, R.I. (1986). River loads underestimated by rating curves. *Water Resources Research*, 22(1), 74–76. https://doi.org/10.1029/WR022i001p00074
 - Hirsch, R.M., Alexander, R.B., and Smith, R.A. (1991). Selection of methods for the detection and estimation of trends in water quality. *Water Resources Research*, 27(5), 803–813.
 - Kelly (Letcher), R.A., Jakeman, A.J., et al. (2013). Selecting among five common modelling approaches for integrated environmental assessment and management. *Environmental Modelling & Software*, 47, 159–181.
+- Manning, W.G. and Mullahy, J. (2001). Estimating log models: to transform or not to transform? *Journal of Health Economics*, 20(4), 461–494. https://doi.org/10.1016/S0167-6296(01)00086-8
 - Muggeo, V.M.R. (2008). segmented: An R package to fit regression models with broken-line relationships. *R News*, 8(1), 20–25.
 - Newell, C.J., Rifai, H.S., Wilson, J.T., Connor, J.A., Aziz, J.A., and Suarez, M.P. (2002). *Calculation and Use of First-Order Rate Constants for Monitored Natural Attenuation Studies*. Ground Water Issue, EPA/540/S-02/500. U.S. Environmental Protection Agency.
+- Ott, W.R. (1990). A physical explanation of the lognormality of pollutant concentrations. *Journal of the Air & Waste Management Association*, 40(10), 1378–1383. https://doi.org/10.1080/10473289.1990.10466789
+- Pennsylvania State University. *STAT 501: Regression Methods*. Lessons 2, 4, 7 and 9. https://online.stat.psu.edu/stat501/
 - Simpson, G.L. (2018). Modelling palaeoecological time series using generalised additive models. *Frontiers in Ecology and Evolution*, 6, 149.
 - Singh, A. and Singh, A.K. (2015). *ProUCL Version 5.1 Technical Guide: Statistical Software for Environmental Applications for Data Sets with and without Nondetect Observations*. EPA/600/R-07/041. U.S. Environmental Protection Agency, Office of Research and Development.
 - Wood, S.N. (2017). *Generalized Additive Models: An Introduction with R*, Second Edition. CRC Press. Grounds the [GAM](chapters/gam.qmd) and [GAMM](chapters/gamm.qmd) chapters' effective-degrees-of-freedom, `lpmatrix`/prediction-variance, and AR(1)-correlated-residual methodology.
