@@ -9,47 +9,139 @@ subtitle: "Total Phosphorus — the same rise-then-plateau, a smoother local fit
 library(dplyr)
 library(ggplot2)
 library(caret)
-library(lmtest)
 source("R/utils.R")
 non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_types = FALSE)
 tp_wq <- non_linear_wq |> filter(analyte == "Total Phosphorus")
 ```
 
+## What `geom_smooth()` is drawing
+
+A scatterplot with a curve from `ggplot2::geom_smooth()` is one of the most common first looks at a monitoring record, and the curve is often read as the trend. Its settings rarely get the same attention. Called with no arguments, as in @fig-tp-geom-smooth, `geom_smooth()` picks a method from the size of the largest group: below 1,000 observations it fits LOESS through `stats::loess()` with `span = 0.75`, and at 1,000 or more it fits a GAM, `mgcv::gam()` with `y ~ s(x, bs = "cs")` (ggplot2 reference, `geom_smooth()`). `loess()` sets `degree = 2` by default (R Core Team, `?loess`). The fit is on the scale the data are plotted on, here raw mg/L rather than the log scale used elsewhere on this site.
+
+The grey band may be a surprise after the [k-NN chapter](knn-regression.qmd), which showed none. LOESS can supply one because each point on its curve is a small weighted regression, and a regression's fitted value comes with a standard error. By default `geom_smooth()` turns that into a 95% confidence interval at each year (`se = TRUE`, `level = 0.95`). The interval is **pointwise**: it describes uncertainty in the curve's height one year at a time. It isn't a test of whether the record has a trend. [Why the disagreement lives at the boundary](#why-the-disagreement-lives-at-the-boundary) and [Why LOESS stops short of a significance test](#why-loess-stops-short-of-a-significance-test) come back to both points.
+
+```{r}
+#| label: fig-tp-geom-smooth
+#| message: false
+#| fig-cap: "Total Phosphorus with `geom_smooth()` at its default settings: a LOESS fit with span = 0.75 and degree = 2 on the raw scale, with a pointwise 95% confidence band."
+ggplot(tp_wq, aes(year_frac, result)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth() +
+  labs(x = "Year", title = "Total Phosphorus — geom_smooth() defaults", y = "Phosphorus (mg/L)") +
+  nlt_theme
+```
+
+Here the default curve turns down over the last two years of the record, but a different `span` or `degree` can tell a different story about the same record. This chapter opens up that default. It fits LOESS to the Total Phosphorus record from the [k-NN chapter](knn-regression.qmd), shows what `span` and `degree` do to the curve, and sets out what the result can and can't support.
+
 ## Fitting a small weighted regression at every point
 
-This is the same Total Phosphorus record used for [k-Nearest Neighbors Regression](knn-regression.qmd) — a rise through the middle years that settles onto a plateau — fit here with **LOESS** instead, for a direct comparison of two local methods on identical data. Where k-NN predicts each point as the flat average of its $k$ nearest neighbors, LOESS fits a separate **weighted regression** at every query point $x_0$:
+Where k-NN predicts each point as the flat average of its $k$ nearest neighbors, **LOESS** (locally estimated scatterplot smoothing) fits a separate **weighted regression** at every query point $x_0$ using only the nearby observations — the weight $w_i(x_0)$ is largest for points right at $x_0$, decays smoothly to zero at the edge of the neighborhood, and is exactly zero beyond it, where $h$ is the neighborhood radius. The fit itself is by weighted least squares (R Core Team, `?loess`).
 
-$$\hat\beta(x_0) = \arg\min_\beta \sum_{i=1}^n w_i(x_0)\left(y_i - x_i^\top \beta\right)^2, \qquad w_i(x_0) = \left(1 - \left|\frac{x_i - x_0}{h}\right|^3\right)^3_+,$$
+**`span`** plays the role $k$ played in k-NN. It's the proportion of the data in each local neighborhood (R Core Team, `?loess`), so a neighborhood holds about `span` × $n$ points, and $h$ is the distance from $x_0$ to the farthest of them. With 144 monthly samples, `span = 0.5` uses the 72 points nearest to $x_0$, against k-NN's 14. That neighborhood is much wider, but the weights mean points near its edge contribute little. Larger `span` values give wider, smoother neighborhoods (DSCI 562, Lecture 6). k-NN can also weight its neighbors by distance (DSCI 571, Lecture 3); LOESS goes a step further and fits a regression inside the weighted neighborhood instead of averaging it.
 
-using only the nearby observations — the weight $w_i(x_0)$ is largest for points right at $x_0$, decays smoothly to zero at the edge of the neighborhood, and is exactly zero beyond it, where $h$ is the neighborhood radius.
+@fig-loess-query-points shows one of these local fits at three query points on the Total Phosphorus record, with `span = 0.5` and `degree = 1`, on the log scale the fits use. It follows the same layout as the k-NN chapter's query-point figure, and its step-by-step view of one local fit draws on the walkthrough in Starmer's *StatQuest* video on LOWESS and LOESS (Starmer, *StatQuest*).
 
-**`span`** is the parameter that sets $h$: it's the proportion of the total data included in each local neighborhood, so `span = 0.5` means every local fit uses the nearest 50% of points to $x_0$, and larger `span` values mean wider, smoother neighborhoods.
+```{r}
+#| label: fig-loess-query-points
+#| echo: false
+#| fig-width: 9
+#| fig-height: 3.6
+#| fig-cap: "Three LOESS fits on the Total Phosphorus record (span = 0.5, degree = 1). Darker points carry more weight in the local fit; white points carry none. The colored line is the weighted least-squares line fitted to that neighborhood, and the black point is where it crosses the query point (dashed line). Only that one value is kept. The y-axis is on a log scale, the scale the fit is made on."
+demo_span <- 0.5
+demo_q <- floor(nrow(tp_wq) * demo_span)
+
+# One local fit by hand: tricube weights over the nearest span * n points, then
+# a weighted straight line centred on x0. With surface = "direct", loess()
+# returns the same value at x0; its default interpolation differs in the
+# fourth decimal place.
+local_line <- function(x0) {
+  gap <- abs(tp_wq$year_frac - x0)
+  h <- sort(gap)[demo_q]
+  w <- ifelse(gap < h, (1 - (gap / h)^3)^3, 0)
+  m <- lm(log(result) ~ I(year_frac - x0), data = tp_wq, weights = w)
+  list(w = w, h = h, b0 = unname(coef(m)[1]), b1 = unname(coef(m)[2]))
+}
+
+lq_x0 <- c("Early in the rise" = 1.5, "Middle of the record" = 6.0, "End of the record" = max(tp_wq$year_frac))
+lq_fits <- lapply(lq_x0, local_line)
+
+lq_points <- bind_rows(lapply(names(lq_x0), function(nm) {
+  tp_wq |> mutate(panel = nm, weight = lq_fits[[nm]]$w)
+}))
+lq_lines <- bind_rows(lapply(names(lq_x0), function(nm) {
+  f <- lq_fits[[nm]]; x0 <- lq_x0[[nm]]
+  xs <- seq(max(min(tp_wq$year_frac), x0 - f$h), min(max(tp_wq$year_frac), x0 + f$h), length.out = 50)
+  data.frame(panel = nm, year_frac = xs, fit = exp(f$b0 + f$b1 * (xs - x0)))
+}))
+lq_pred <- data.frame(panel = names(lq_x0), x0 = unname(lq_x0),
+                      fit = exp(sapply(lq_fits, `[[`, "b0")))
+lq_points$panel <- factor(lq_points$panel, levels = names(lq_x0))
+lq_lines$panel <- factor(lq_lines$panel, levels = names(lq_x0))
+lq_pred$panel <- factor(lq_pred$panel, levels = names(lq_x0))
+
+ggplot() +
+  geom_point(data = lq_points, aes(year_frac, result, fill = weight),
+             shape = 21, size = 1.8, color = "grey30") +
+  geom_vline(data = lq_pred, aes(xintercept = x0), linetype = "dashed") +
+  geom_line(data = lq_lines, aes(year_frac, fit), color = project_palette[3], linewidth = 1.1) +
+  geom_point(data = lq_pred, aes(x0, fit), size = 3.5) +
+  scale_fill_gradient(low = "white", high = project_palette[3], guide = "none") +
+  scale_y_log10() +
+  facet_wrap(~panel) +
+  labs(x = "Years since start of record", y = "Phosphorus (mg/L, log scale)",
+       title = "One Weighted Line per Query Point") +
+  nlt_theme +
+  theme(panel.spacing.x = unit(1.5, "lines"))
+```
+
+Each panel is a complete regression in its own right, with its own intercept and slope, fitted to its own weighted neighborhood. Early in the rise the local line slopes upward. In the middle of the record it is steeper, because its window sits on the fastest part of the rise. At the end of the record it is nearly flat, and its neighbors all sit to the left of the query point. Only the black point is used; the rest of each line is discarded once the fitted value has been read off.
 
 `stats::loess()` is base R — no additional package is required. The response is modeled on the log scale, for the same reasons covered in [Transformations](transformations.qmd).
 
-**`degree`** sets the order of each local fit, distinct from the shape of the whole curve.
+**`degree`** sets the order of each local fit, distinct from the shape of the whole curve. `loess()` documents 1 and 2 as the usual choices, with 0 also allowed (R Core Team, `?loess`).
 
 - `degree = 0` is a local weighted average — closer in spirit to k-NN's flat average than to a regression at all;
 - `degree = 1` fits a local straight line at every point;
 - `degree = 2` fits a local parabola.
 
-LOESS fits a different local line at every target point, so `degree = 1` still produces a curve that bends over the full record, made up of many local linear pieces stitched together. In contrast to `lm(y ~ x)`, which fits one slope for the entire dataset, `loess(y ~ x, degree = 1)` fits many local slopes, each valid only in its own neighborhood.
-
-## The shape in the record
-
-`geom_smooth()`'s default curve below is already a LOESS fit: for fewer than 1,000 points, `ggplot2` calls `stats::loess()` under the hood with `span = 0.75` and `degree = 2`, on the raw (untransformed) scale. That's a wider neighborhood and a higher local order than the fit selected below, so it's a reasonable first look at the shape but not the fit this chapter commits to.
+LOESS fits a different local line at every target point, so `degree = 1` still produces a curve that bends over the full record, made up of many local linear pieces stitched together. In contrast to `lm(y ~ x)`, which fits one slope for the entire dataset, `loess(y ~ x, degree = 1)` fits many local slopes, each valid only in its own neighborhood (DSCI 562, Lecture 6). @fig-loess-stitched shows both.
 
 ```{r}
-#| label: tp-loess-raw
-#| message: false
-ggplot(tp_wq, aes(year_frac, result)) +
-  geom_point(alpha = 0.5) +
-  geom_smooth(se = FALSE) +
-  labs(x = "Year", title = "Total Phosphorus — raw scale", y = "Phosphorus (mg/L)") +
+#| label: fig-loess-stitched
+#| echo: false
+#| fig-width: 7
+#| fig-height: 4
+#| fig-cap: "The LOESS curve (span = 0.5, degree = 1, grey) and a sample of the local lines that build it (colored). Each local line is drawn over a short stretch around its own query point (black), where it touches the curve. The dashed line is a single `lm()` fit to the whole record. The y-axis is on a log scale."
+st_grid <- seq(min(tp_wq$year_frac), max(tp_wq$year_frac), length.out = 200)
+st_curve <- data.frame(year_frac = st_grid,
+                       fit = exp(sapply(st_grid, function(x0) local_line(x0)$b0)))
+
+st_x0 <- c(1, 3.5, 6, 8.5, 11)
+st_segments <- bind_rows(lapply(st_x0, function(x0) {
+  f <- local_line(x0)
+  xs <- c(max(x0 - 0.9, min(tp_wq$year_frac)), min(x0 + 0.9, max(tp_wq$year_frac)))
+  data.frame(x0 = x0, year_frac = xs, fit = exp(f$b0 + f$b1 * (xs - x0)),
+             fit0 = exp(f$b0))
+}))
+
+st_lm <- lm(log(result) ~ year_frac, data = tp_wq)
+st_lm_line <- data.frame(year_frac = st_grid,
+                         fit = exp(predict(st_lm, newdata = data.frame(year_frac = st_grid))))
+
+ggplot() +
+  geom_point(data = tp_wq, aes(year_frac, result), alpha = 0.3, color = "grey40", size = 0.8) +
+  geom_line(data = st_lm_line, aes(year_frac, fit), linetype = "dashed", color = "grey20") +
+  geom_line(data = st_curve, aes(year_frac, fit), color = "grey60", linewidth = 0.6) +
+  geom_line(data = st_segments, aes(year_frac, fit, group = x0),
+            color = project_palette[4], linewidth = 1) +
+  geom_point(data = distinct(st_segments, x0, fit0), aes(x0, fit0), size = 2.2) +
+  scale_y_log10() +
+  labs(x = "Years since start of record", y = "Phosphorus (mg/L, log scale)",
+       title = "Many Local Lines, One Curve") +
   nlt_theme
 ```
 
-Same shape as in the k-NN chapter: a low, roughly flat start, a rise through the middle years, and a plateau at a higher level for the rest of the record.
+Every colored line in @fig-loess-stitched is straight, yet the grey curve they build bends from the rise into the plateau. That happens because the slope changes from one query point to the next. The `lm()` line has to describe the whole record with one slope, so it runs above the curve early in the rise and again at the end, and below it in between. The trade-off is the one this chapter keeps returning to: the local lines follow the shape, but there is no longer one slope to report.
 
 ## Fitting the shape
 
@@ -71,7 +163,7 @@ resid_sd <- mapply(function(sp, deg) {
 data.frame(span_degree_grid, resid_sd = round(resid_sd, 4))
 ```
 
-Residual spread rises as `span` widens and drops as `degree` increases within a fixed span — both expected, since a narrower neighborhood and a higher local order each add flexibility. But the residual SD alone doesn't show why the lowest-SD combination isn't the right choice — for that, the fitted curves themselves need to be seen side by side:
+Residual spread rises as `span` widens and drops as `degree` increases within a fixed span — both expected, since a narrower neighborhood and a higher local order each add flexibility. This is the pattern training error follows for any model: it keeps falling as the model gets more flexible, including when the extra flexibility only fits noise, so it can't pick the setting on its own (DSCI 571, Lecture 2). The fitted curves need to be seen side by side:
 
 ```{r}
 #| label: tp-loess-span-degree-grid
@@ -100,21 +192,34 @@ ggplot() +
   theme(panel.spacing.x = unit(1, "lines"))
 ```
 
-These aren't just noisier or smoother versions of the same curve — three of the six panels tell visibly different stories about what happens late in the record.
+These aren't just noisier or smoother versions of the same curve — four of the six panels tell visibly different stories about what happens late in the record.
 
-- `span = 0.5, degree = 1` settles onto a flat plateau with no late structure.
+- `span = 0.75, degree = 1` keeps climbing through the last five years. It is too stiff to bend into the plateau, and reads a levelled-off record as ongoing growth.
+- `span = 0.5, degree = 1` levels off into a plateau that rises only slightly, with no late structure.
 - `span = 0.3, degree = 2` — the combination with the lowest residual SD in the table above — instead shows the plateau dip and rise again near the end, a meandering shape rather than a flat one; that's the same kind of feature the [k-NN chapter](knn-regression.qmd)'s own cross-validated fit picked up in its plateau, so it isn't unique to this method's noise.
 - `span = 0.75, degree = 2` — `geom_smooth()`'s own default combination — bends downward at the very end of the record, which read on its own would look like the start of a decline.
 
 ### Why the disagreement lives at the boundary
 
-Only one of those three readings can be right, and the disagreement is concentrated exactly where local regression is least trustworthy: at the boundary of the record, a local fit only has neighbors on one side, so its variance is highest there regardless of `span` or `degree`. The 95% confidence bands make this visible directly — they're narrow through the rise and the middle of the plateau in every panel, then widen noticeably at the right-hand edge, most visibly in `span = 0.3, degree = 2`, exactly where that panel's dip-and-rise appears. A dip, a rise, or a downward tilt confined to the last few points, sitting inside a band that wide, is the kind of artifact boundary variance produces, so none of the three should be read as a discovery about the last years of the record.
+Those readings can't all be right, and the curve this series was generated from, a flat plateau, matches none of the late dips, rises or downturns. Apart from the stiff `span = 0.75, degree = 1` fit, the disagreement is concentrated where local regression is least trustworthy: at the boundary of the record, a local fit only has neighbors on one side, so its variance is highest there regardless of `span` or `degree`. The 95% confidence bands make this visible directly — they're narrow through the rise and the middle of the plateau in every panel, then widen noticeably at the right-hand edge, most visibly in `span = 0.3, degree = 2`, exactly where that panel's dip-and-rise appears. A dip, a rise, or a downward tilt confined to the last few points, sitting inside a band that wide, is the kind of artifact boundary variance produces, so none of the three should be read as a discovery about the last years of the record.
 
-`span = 0.5, degree = 1` is used below because a flat reading close to the boundary is the more conservative call, given that the alternative shapes only show up as boundary noise rather than a feature the middle of the record also displays.
+`span = 0.5, degree = 1` is used below because a near-flat reading close to the boundary is the more conservative call, given that the alternative shapes only show up as boundary noise rather than a feature the middle of the record also displays.
 
-Those bands exist at all because each point on the curve comes from a genuine weighted **regression** — an intercept and, at `degree = 1` or `2`, a local slope, estimated by weighted least squares — not a plain average. Any least-squares fit carries a standard error on its coefficients, so `predict(..., se = TRUE)` can propagate that into a standard error on the fitted value at each point, the same way it would for an ordinary `lm()` fit.
+That choice is still a judgment call. With LOESS the analyst has to choose how large a window to use, and that subjectivity is what makes LOESS a problem once the goal moves beyond exploratory analysis (Simpson, 2018). It is the reason this chapter treats the fit as a look at the shape rather than as a result.
 
-k-NN has no equivalent: it only ever computes an average of the $k$ nearest values, with no coefficients and nothing to attach a standard error to, so `knnreg()` returns a prediction with no attached uncertainty. Nothing in the [earlier comparison plot](knn-regression.qmd) flagged its own boundary as less trustworthy the way the bands above do for LOESS. That doesn't make k-NN's boundary behavior more reliable, though — it's just quieter about the problem.
+### Where the bands come from
+
+Each point on a LOESS curve is the answer from a small regression, and a regression's answer comes with a standard error, the same as a fitted value from `lm()`. The standard error measures how much that answer would shift if the samples had come out a little differently, given the scatter of the data around the curve. `predict(..., se = TRUE)` reports it, and the band is the curve plus or minus 1.96 x standard errors.
+
+The bands widen at the edge of the record because of where the neighbors sit. In the middle, a local fit has observations on both sides of the year it is estimating, and they hold it in place. At the end, all of its neighbors are on one side, so the local line is anchored at one end only and can tilt more easily. Its answer is less certain, and the band is wider.
+
+This also sets out what the bands can and can't be used for.
+
+- **What a band shows.** At one year, it gives a range of plausible values for the smoothed curve, given the `span` and `degree` chosen. A wide band at the edge of the record is a fair warning not to read much into the curve there.
+- **It is pointwise, not simultaneous.** Each year has its own 95% interval: the statement holds at any one year, not for the whole curve at once (Faraway, 2016). The chance that the true curve stays inside the band at every year at once is lower than 95%, so a flat line fitting inside the band is not a test of "no trend."
+- **It holds the smoothing fixed.** The calculation treats `span` and `degree` as known in advance. The six panels above give six different bands for the same data, and none of them includes the uncertainty of picking one.
+- **It measures noise, not bias.** If the window is too wide and the curve misses a real feature, the band does not widen to cover it.
+- **It assumes independent errors.** If residuals are correlated from one sample to the next, as monitoring records often are, the band is too narrow. The [GAMM chapter](gamm.qmd) deals with that case.
 
 ### The chosen fit
 
@@ -148,9 +253,9 @@ ggplot() +
   theme(legend.position = "right")
 ```
 
-The two curves track the same rise-and-plateau shape closely, but LOESS's is visibly smoother through the transition — a consequence of fitting a local line rather than a flat local average, so the curve doesn't have to jump between step-like neighborhood means as the window slides along the record.
+The two curves track the same rise-and-plateau shape closely, but LOESS's is visibly smoother. Most of that comes from the weights: a point enters and leaves a LOESS neighborhood gradually as its weight rises from or falls to zero, while a k-NN neighborhood swaps whole points in and out as the query point moves, so its curve steps. The LOESS neighborhood here is also much wider, 72 points against 14.
 
-## Why LOESS doesn't support a significance test
+## Why LOESS stops short of a significance test
 
 A **standard error** is how much an estimate would be expected to vary if the data were resampled and the fit redone — it's what a confidence interval is built from, and what a significance test checks an estimate against.
 
@@ -159,10 +264,10 @@ The confidence bands two sections above show that a **pointwise** standard error
 ::: callout-tip
 ## Fitting a separate regression at every point, rather than one set of parameters over the whole record, has a real **cost**:  
 
-There's no one global coefficient — no single number for "the trend" — so there's nothing for a global standard error or significance test to attach to. `loess()` doesn't return an object structured to support one the way `lm()` or `mgcv::gam()` do, and that's a structural consequence of the method.
+There's no one global coefficient, no single number for "the trend." A straight line can be summarised by its intercept and slope; a local fit has no such summary (Timbers et al., 2022, §8.5). `loess()` does offer an approximate F-test for comparing two nested LOESS fits (`anova()`), but no ready-made test of whether the curve differs from flat, and any such result would still rest on a `span` picked by hand. A GAM tests its smooth term with the amount of smoothing estimated as part of the fit.
 :::
 
-LOESS is a genuinely useful tool for **prediction**, at the cost of the inferential interpretability a parametric or semi-parametric model provides. Its role in this progression is to establish the shape clearly. Attaching a significance test to that shape is the job of [Generalized Additive Models](gam.qmd), next.
+LOESS is a genuinely useful tool for **prediction**, at the cost of the inferential interpretability a parametric or semi-parametric model provides. Its role in this progression is to establish the shape clearly, which matches how reviews of water-quality trend methods place smoothing: flexible, but still largely descriptive (Esterby, 1996). Attaching a significance test to that shape is the job of [Generalized Additive Models](gam.qmd), next.
 
 ## Interpretation
 
@@ -174,4 +279,11 @@ Neither fit supports a significance test on its own. [Generalized Additive Model
 
 - UBC Master of Data Science, *DSCI 561: Regression I*.
 - UBC Master of Data Science, *DSCI 562: Regression II*. [Lecture 6: Local Regression](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture6_local_regression.html).
-- UBC Master of Data Science, *DSCI 571: Supervised Learning I*.
+- UBC Master of Data Science, *DSCI 571: Supervised Learning I*. [Lecture 2: ML Fundamentals](https://github.com/UBC-MDS/DSCI_571_sup-learn-1/blob/master/lectures/notes/02_ml-fundamentals.ipynb), [Lecture 3: k-Nearest Neighbours and SVM RBFs](https://github.com/UBC-MDS/DSCI_571_sup-learn-1/blob/master/lectures/notes/03_kNNs-SVM-RBF.ipynb).
+- Timbers, T., Campbell, T., & Lee, M. (2022). *Data Science: A First Introduction*. CRC Press. [Chapter 8: Regression II: linear regression](https://datasciencebook.ca/regression2.html).
+- Starmer, J. *StatQuest with Josh Starmer*. [Lowess and Loess, Clearly Explained!!!](https://www.youtube.com/watch?v=Vf7oJ6z2LCc). YouTube video.
+- ggplot2 reference: [`geom_smooth()` / `stat_smooth()`](https://ggplot2.tidyverse.org/reference/geom_smooth.html).
+- R Core Team. [`loess`: Local Polynomial Regression Fitting](https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/loess). *stats* package documentation, R version 3.6.2.
+- Faraway, J. (2016, March 11). [What's wrong with simultaneous confidence bands](https://farawaystatistics.wordpress.com/2016/03/11/whats-wrong-with-simultaneous-confidence-bands/). *Faraway Statistics* (blog).
+- Esterby, S.R. (1996). Review of methods for the detection and estimation of trends with emphasis on water quality applications. *Hydrological Processes*, 10(2), 127–149.
+- Simpson, G.L. (2018). Modelling palaeoecological time series using generalised additive models. *Frontiers in Ecology and Evolution*, 6, 149.
