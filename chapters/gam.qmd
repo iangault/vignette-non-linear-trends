@@ -94,10 +94,11 @@ The ReLU case shows the link concretely. A ReLU unit on a single input is $\max(
 
 ### From a polynomial to a GAM
 
-Clark (2022, "The case for GAMs") builds up to a GAM through a sequence of fits to one simulated curve, $f(x) = \sin(2(4x - 2)) + 2e^{-16^2(x - 0.5)^2}$, a wave with a narrow peak at $x = 0.5$. The figure below reproduces that sequence with the same function and seed. The dashed black line is the true curve, so each panel's error can be read as the gap between it and the coloured fit. In panel 2, the 10 separately fitted pieces alternate in colour.
+Clark (2022, "The case for GAMs") builds up to a GAM through a sequence of fits to one simulated curve, $f(x) = \sin(2(4x - 2)) + 2e^{-16^2(x - 0.5)^2}$, a wave with a narrow peak at $x = 0.5$. @fig-basis-progression reproduces that sequence with the same function and seed. The dashed black line is the true curve, so each panel's error can be read as the gap between it and the coloured fit. In panel 2, the 10 separately fitted pieces alternate in colour.
 
 ```{r}
-#| label: basis-progression
+#| label: fig-basis-progression
+#| fig-cap: "Three fits to the same simulated curve, after Clark (2022): (1) one global degree-15 polynomial, (2) separate cubics in 10 chunks with no join, (3) a penalized spline. The dashed black line is the true curve."
 #| echo: false
 #| fig-width: 9
 #| fig-height: 9
@@ -195,7 +196,8 @@ The fitted smooth comes with a test of whether it differs from flat over the rec
 ### Raw series
 
 ```{r}
-#| label: cu-raw-series
+#| label: fig-cu-raw
+#| fig-cap: "Total Copper, monthly samples, raw scale, with `ggplot2`'s default smoother for a first look."
 #| message: false
 ggplot(cu_wq, aes(year_frac, result)) +
   geom_point(alpha = 0.5) +
@@ -204,7 +206,7 @@ ggplot(cu_wq, aes(year_frac, result)) +
   nlt_theme
 ```
 
-The record shows an early low, stable period, a rise to a higher plateau, a brief spike well above that, a drop back down, a further drop below the original level and a partial recovery. None of it is periodic, and none of it is a straight line or two. The smoothed curve is `ggplot2`'s default LOESS smoother, used informally, as in the [k-NN](knn-regression.qmd) and [LOESS](loess-smoothing.qmd) chapters, to see the shape before choosing a model.
+@fig-cu-raw shows an early low, stable period, a rise to a higher plateau, a brief spike well above that, a drop back down, a further drop below the original level and a partial recovery. None of it is periodic, and none of it is a straight line or two. The smoothed curve is `ggplot2`'s default LOESS smoother, used informally, as in the [k-NN](knn-regression.qmd) and [LOESS](loess-smoothing.qmd) chapters, to see the shape before choosing a model.
 
 ### Checking the scale: log vs. raw
 
@@ -328,7 +330,8 @@ The intervals in the rest of this chapter are described with the words *prior*, 
 - **Posterior simulation.** Drawing sets of coefficients from that distribution, and turning each set into a curve, gives a collection of trends, each consistent with the data and with the smoothness assumption (Simpson, 2018, §4.3). Where the draws agree, the trend is well determined; where they spread apart, it is not.
 
 ```{r}
-#| label: cu-posterior-draws
+#| label: fig-cu-posterior-draws
+#| fig-cap: "The fitted Total Copper trend (black) and 20 trends drawn from the posterior distribution of the coefficients (blue), back-transformed to µg/L."
 # 300-point grid spanning the record, for smooth prediction curves
 grid <- data.frame(year_frac = seq(min(cu_wq$year_frac), max(cu_wq$year_frac), length.out = 300))
 pred <- predict(fit_cu, newdata = grid, se.fit = TRUE)
@@ -354,7 +357,7 @@ ggplot() +
   nlt_theme
 ```
 
-The draws agree closely on the large features of the record: the rise near year 2, the fall near year 7 and the low period between years 7.5 and 9 look much the same in every draw. They disagree on the smaller wiggles within the two higher plateaus (years 2.5 to 4.5 and 5.5 to 6.5) and on the height of the spike near year 5, where some draws peak several µg/L above or below the fitted curve. Simpson (2018, §4.3) reads his own posterior draws the same way: a feature reproduced across the draws is well supported, and one that comes and goes between draws should not be over-interpreted.
+The draws in @fig-cu-posterior-draws agree closely on the large features of the record: the rise near year 2, the fall near year 7 and the low period between years 7.5 and 9 look much the same in every draw. They disagree on the smaller wiggles within the two higher plateaus (years 2.5 to 4.5 and 5.5 to 6.5) and on the height of the spike near year 5, where some draws peak several µg/L above or below the fitted curve. Simpson (2018, §4.3) reads his own posterior draws the same way: a feature reproduced across the draws is well supported, and one that comes and goes between draws should not be over-interpreted.
 
 The standard errors from `predict(fit_cu, se.fit = TRUE)` come from the same posterior covariance matrix, so the bands below summarize how widely curves like these spread at each date, and the simultaneous band is computed by simulating many more of them. For reporting, a band reads as the range of trends consistent with the data, given that the trend is smooth.
 
@@ -368,7 +371,8 @@ The standard errors from `predict(fit_cu, se.fit = TRUE)` come from the same pos
 Simpson (2018, §4.3 and Appendix 1) computes the simultaneous band with the simulation method of Ruppert et al. (2003). Many sets of coefficients are drawn from the fitted model's posterior distribution, each one a curve consistent with the data. For each draw, the largest gap between the simulated and the fitted curve, measured in standard errors, is recorded over the whole record. The 95th percentile of those largest gaps replaces 1.96 as the multiplier on the standard error. The code below follows those steps on the full fitted curve, intercept included, so the band can be converted to µg/L:
 
 ```{r}
-#| label: cu-ci-band-plot
+#| label: fig-cu-bands
+#| fig-cap: "The fitted Total Copper trend with a pointwise 95% band (dark) and a simultaneous 95% band (light)."
 # simultaneous critical value, following Simpson (2018, Appendix 1),
 # using grid, pred, se and Xp from the posterior-draws chunk above
 set.seed(1) # the critical value comes from posterior simulation
@@ -401,7 +405,7 @@ ggplot() +
   nlt_theme
 ```
 
-The simultaneous critical value is `r round(crit_sim, 2)`, against 1.96 for the pointwise band, so on the log scale the simultaneous band is about `r round(100 * (crit_sim / 1.96 - 1))`% wider; Simpson (2018, §4.3) reports 3.07 and 3.43 for his two example records. Both bands are built on the log scale, where the errors are close to Gaussian, and exponentiated to µg/L. The pointwise band suits reading the level at one chosen date; statements about the curve across the record use the simultaneous band, and the [next section](#where-the-record-is-rising-falling-or-flat) applies the same construction to the slope.
+In @fig-cu-bands, the simultaneous critical value is `r round(crit_sim, 2)`, against 1.96 for the pointwise band, so on the log scale the simultaneous band is about `r round(100 * (crit_sim / 1.96 - 1))`% wider; Simpson (2018, §4.3) reports 3.07 and 3.43 for his two example records. Both bands are built on the log scale, where the errors are close to Gaussian, and exponentiated to µg/L. The pointwise band suits reading the level at one chosen date; statements about the curve across the record use the simultaneous band, and the [next section](#where-the-record-is-rising-falling-or-flat) applies the same construction to the slope.
 
 Both bands widen over the spike around years 4.5 to 5, where only a few months of data inform the curve. The fitted peak (about `r round(max(grid$fit), 1)` µg/L) sits below the highest readings there, because a smoothing penalty partly discounts a short excursion supported by only a handful of points. Morton and Henderson (2008) describe this as a general property of smoothing splines: they miss rapid changes in slope and underestimate the height of local peaks and the depth of local troughs. The fitted spike height is therefore not reported as the peak concentration.
 
@@ -458,10 +462,11 @@ The grid points are about two weeks apart, so the counts above are shares of the
 
 ### Visualizing significant stretches
 
-The figure follows the layout of Simpson (2018, Figures 9 and 10): the fitted trend in the response's own units, then its first derivative with a simultaneous interval. Here the units are µg/L for the level and percent per year for the rate. `gratia`'s `draw()` methods are built around the centred smooth term and a pointwise band, so the two panels are drawn with `ggplot2` from the band and derivative already computed:
+@fig-cu-derivative follows the layout of Simpson (2018, Figures 9 and 10): the fitted trend in the response's own units, then its first derivative with a simultaneous interval. Here the units are µg/L for the level and percent per year for the rate. `gratia`'s `draw()` methods are built around the centred smooth term and a pointwise band, so the two panels are drawn with `ggplot2` from the band and derivative already computed:
 
 ```{r}
-#| label: cu-derivative-plot
+#| label: fig-cu-derivative
+#| fig-cap: "Top: the fitted median with its 95% simultaneous band, coloured where the trend is significantly rising (orange) or falling (blue). Bottom: the rate of change, in percent per year, with its 95% simultaneous interval."
 #| fig-height: 7
 trend_cols <- c(rising = "#D55E00", falling = "#0072B2", flat = "grey40")
 
@@ -566,17 +571,19 @@ The smooth-term test and the simultaneous intervals on the curve and its slope a
 ### Independence
 
 ```{r}
-#| label: cu-acf
+#| label: fig-cu-acf
+#| fig-cap: "Residual autocorrelation of the Total Copper GAM. The dashed lines are approximate 95% bounds for independent residuals."
 acf(resid(fit_cu), main = "Total Copper GAM: residual autocorrelation")
 Box.test(resid(fit_cu), lag = 1, type = "Ljung-Box")
 ```
 
-This comes out as clean as the [piecewise](piecewise-regression.qmd) and [changepoint](changepoint-detection.qmd) chapters on this front: lag-1 autocorrelation is close to zero, and the Ljung-Box test finds no evidence against independence ($p = 0.299$).
+@fig-cu-acf comes out as clean as the [piecewise](piecewise-regression.qmd) and [changepoint](changepoint-detection.qmd) chapters on this front: lag-1 autocorrelation is close to zero, and the Ljung-Box test finds no evidence against independence ($p = 0.299$).
 
 ### Residuals over time
 
 ```{r}
-#| label: cu-resid-vs-time
+#| label: fig-cu-resid-time
+#| fig-cap: "Residuals of the Total Copper GAM, on the log scale, plotted against time."
 #| message: false
 cu_wq |>
   mutate(resid = resid(fit_cu)) |>
@@ -587,7 +594,7 @@ cu_wq |>
   nlt_theme
 ```
 
-Plotted against time, the residuals are fairly evenly spread across the record.
+Plotted against time (@fig-cu-resid-time), the residuals are fairly evenly spread across the record.
 
 ## Interpretation
 
