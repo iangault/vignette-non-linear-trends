@@ -163,7 +163,23 @@ This sum can trace out almost any smooth curve, but it is still a linear combina
 
 ### The GAM linear predictor
 
-A GAM's linear predictor is $\eta = \beta_0 + f(x)$, with $f$ the spline-basis sum above standing in for the single coefficient times $x$ an OLS fit would use. `mgcv::gam()` builds a basis of dimension `k`, and a **smoothing penalty**, with its weight estimated from the data, decides how much of that flexibility the fitted curve uses. A larger penalty pulls the whole curve toward a straight line (Wood, 2017, §4.2.1–4.2.2).
+A GAM's linear predictor is $\eta = \beta_0 + f(x)$, with $f$ the spline-basis sum above standing in for the single coefficient times $x$ an OLS fit would use. Once the intercept is in the model, $f$ uses $k - 1$ of the $k$ basis functions: `mgcv` constrains each smooth to average zero over the data, so the overall level is carried by $\beta_0$ alone (`mgcv` documentation, `?identifiability`). `mgcv::gam()` builds a basis of dimension `k`, and a **smoothing penalty**, with its weight estimated from the data, decides how much of that flexibility the fitted curve uses. A larger penalty pulls the whole curve toward a straight line (Wood, 2017, §4.2.1–4.2.2).
+
+The sum inside $f$ is not one undivided block. The thin plate basis (`bs = "tp"`, the default) is built so that its first two basis functions are a constant and a straight line, and the rest are curved (see [Kinds of basis](#kinds-of-basis)). The $k$ basis functions fall into three groups:
+
+- **The constant** is dropped from $f$, because the intercept $\beta_0$ already carries it. This is the constraint that keeps the smooth separate from the intercept, and why the edf ceiling is $k - 1$ (see [What edf means](#what-edf-means)).
+- **The straight line** is left alone by the penalty, which measures curvature and finds none in a line.
+- **The remaining $k - 2$** are curved, "wiggly" functions, and they are what the penalty shrinks.
+
+Writing the straight line out separately gives the same linear predictor with its parts named:
+
+$$
+\eta =
+\underbrace{\beta_0 + \beta_1 x}_{\substack{\text{unpenalized:}\\ \text{an OLS straight line}}}
++ \underbrace{\sum_{j=1}^{k-2} \beta_{1+j}\, z_j(x)}_{\substack{\text{penalized:}\\ \text{the wiggles}}}
+$${#eq-gam-parts}
+
+where $z_1, \dots, z_{k-2}$ are the wiggly basis functions. The first two terms are the OLS model from the start of this chapter, and a GAM adds the penalized wiggles on top of it. For the copper fit below, with `k = 40`, that is one straight line plus 38 wiggly basis functions. When the penalty is large enough to shrink every wiggle coefficient to near zero, what remains is the straight line $\beta_0 + \beta_1 x$, which is why a heavily penalized smooth ends up as a line rather than as a flat curve. The [GAMM chapter](gamm.qmd#mixed-models-for-a-single-record) uses this same split to call the straight-line part fixed effects and the wiggles random effects.
 
 ### How the smoothing penalty is fit
 
@@ -173,7 +189,7 @@ $$\mathrm{PSS} = \underbrace{\sum_{i=1}^n \left(y_i - f(x_i)\right)^2}_{\text{la
 
 The first term is ordinary squared error, the same quantity OLS minimizes on its own; it gets smaller the closer the fitted curve $f(x_i)$ tracks each observed $y_i$. The second term, the roughness penalty, is large when $f$ bends sharply and zero when $f$ is a straight line, since a line has zero second derivative everywhere; it's what stops the fit from chasing every observation exactly, which an unpenalized `k`-knot basis could otherwise do. $\lambda$ sets the exchange rate between the two: $\lambda \to 0$ lets the fit use as much of the basis's flexibility as it wants and behave like unpenalized regression on that basis, $\lambda \to \infty$ forces $f$ back to a straight line regardless of what the basis could represent (Wood, 2017, §4.2.2). Straight lines are the penalty's null space: they cost nothing under it, so no value of $\lambda$ can shrink the smooth past a line to zero (Wood, 2017, §5.1.2). `method = "REML"` below estimates $\lambda$ from the data itself, rather than fixing it or choosing it by eye.
 
-**Choosing $\lambda$ with REML.** Because $\lambda$ decides the shape of the fitted curve, the way it is chosen matters as much as the basis. REML stands for **restricted maximum likelihood**, a method from mixed models for estimating variance components. It applies here because the penalty can be read as a prior on wiggliness: the smooth's wiggly coefficients are treated as random effects whose variance is the residual variance divided by $\lambda$ (Wood, 2017, §4.2.4; `mgcv` documentation, `?gam.selection`). A small variance holds those coefficients near zero, giving a heavily penalized, nearly straight curve; a large variance lets the curve bend. REML picks the variance, and with it $\lambda$, that makes the observed data most likely once the random coefficients are averaged over. The "restricted" part adjusts for the fixed effects (the intercept and the smooth's straight-line part) also being estimated from the same data. In ordinary regression, the same adjustment is why the residual variance is estimated by dividing by $n - p$ rather than $n$.
+**Choosing $\lambda$ with REML.** Because $\lambda$ decides the shape of the fitted curve, the way it is chosen matters as much as the basis. REML stands for **restricted maximum likelihood**, a method from mixed models for estimating variance components. It applies here because the penalty can be read as a prior on wiggliness: the smooth's wiggly coefficients are treated as random effects whose variance is the residual variance divided by $\lambda$ (Wood, 2017, §4.2.4; `mgcv` documentation, `?gam.selection`). A small variance holds those coefficients near zero, giving a heavily penalized, nearly straight curve; a large variance lets the curve bend. REML picks the variance, and with it $\lambda$, that makes the observed data most likely once the random coefficients are averaged over. The "restricted" part adjusts for the fixed effects, the unpenalized intercept and straight line in @eq-gam-parts, also being estimated from the same data. In ordinary regression, the same adjustment is why the residual variance is estimated by dividing by $n - p$ rather than $n$.
 
 `mgcv`'s default criterion is generalized cross-validation (GCV), which picks $\lambda$ so that the fit predicts left-out observations well. REML is set explicitly in this chapter for stability: the `mgcv` documentation notes that REML and ML "are less prone to local minima than the other criteria, and may therefore be preferable" (`?gam.selection`), so the chosen $\lambda$ depends less on where the optimizer starts. Simpson (2018, §4.2) also prefers REML for trend estimation, following Wood (2011).
 
@@ -629,4 +645,4 @@ Time is the only predictor in this chapter. If another variable plausibly drives
 - Wood, S.N. (2003). Thin plate regression splines. *Journal of the Royal Statistical Society: Series B*, 65(1), 95–114. <https://doi.org/10.1111/1467-9868.00374>.
 - Wood, S.N. (2011). Fast stable restricted maximum likelihood and marginal likelihood estimation of semiparametric generalized linear models. *Journal of the Royal Statistical Society: Series B*, 73(1), 3–36. <https://doi.org/10.1111/j.1467-9868.2010.00749.x>.
 - Wood, S.N. (2017). *Generalized Additive Models: An Introduction with R*, Second Edition. CRC Press.
-- Wood, S.N. *mgcv: Mixed GAM Computation Vehicle with Automatic Smoothness Estimation*. R package version 1.9.4, help pages `?gam.selection`, `?vcov.gam` and `?smooth.construct.tp.smooth.spec`. <https://CRAN.R-project.org/package=mgcv>.
+- Wood, S.N. *mgcv: Mixed GAM Computation Vehicle with Automatic Smoothness Estimation*. R package version 1.9.4, help pages `?gam.selection`, `?identifiability`, `?vcov.gam` and `?smooth.construct.tp.smooth.spec`. <https://CRAN.R-project.org/package=mgcv>.
