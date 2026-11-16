@@ -9,10 +9,11 @@ In plain terms, every regression model is just a formal way of saying "the respo
 
 The reason to bother getting each of those five parts right, rather than just eyeballing a curve through the points, is that a correctly specified model is what turns a fitted line into a **defensible statistical claim** — a confidence interval, a p-value, a statement that a trend is real and not noise.
 
-The figure below is a simple linear fit, `lm(y ~ x)`, i.e. $y_i = \beta_0 + \beta_1 x_i + \varepsilon_i$:
+@fig-systematic-random is a simple linear fit, `lm(y ~ x)`, i.e. $y_i = \beta_0 + \beta_1 x_i + \varepsilon_i$:
 
 ```{r}
-#| label: systematic-vs-random-mock
+#| label: fig-systematic-random
+#| fig-cap: "Mock data with an OLS line. The line is the systematic component; the vertical gaps are the random component."
 #| message: false
 #| echo: false
 library(ggplot2)
@@ -59,7 +60,7 @@ The fitted line is the systematic component, $E[Y \mid X]$; the vertical gap bet
 
 ### Data Modelling Framework
 
-Conceptually, the OLS regression model can be expressed as:
+Conceptually, the OLS regression model can be expressed as (DSCI 561, DSCI 562):
 
 $$
 \mbox{Response} = \mbox{Systematic Component} + \mbox{Random Component}.
@@ -84,7 +85,7 @@ Note the following:
 
 #### Modelling Assumptions
 
-The model in @eq-OLS_model above for $Y_i$ is more detailed as follows:
+The model in @eq-OLS_model above for $Y_i$ is more detailed as follows (DSCI 561, DSCI 562):
 
 -   The response $Y_i$ depends on the **linear combination** of the functions $g_j(\cdot)$ of $k$ regressors $X_{i, j}$ of different types (continuous and discrete).
 
@@ -107,7 +108,7 @@ $$
 
 ### The five parts {#the-five-parts}
 
-Fitting a regression model means making five separate choices, whether or not they're stated explicitly:
+Fitting a regression model means making five separate choices, whether or not they're stated explicitly (DSCI 561, DSCI 562):
 
 1.  **Estimand** — what aspect of $Y \mid X$ is actually being modeled. Ordinary least squares targets the conditional mean, $E[Y \mid X]$. A model could instead target the median or a quantile; that choice determines everything downstream.
 2.  **Random component** — how $Y$ scatters around that estimand. OLS assumes $Y_i \mid X_i \sim N(\mu_i, \sigma^2)$: Gaussian noise, the same variance at every value of $X$.
@@ -117,11 +118,11 @@ Fitting a regression model means making five separate choices, whether or not th
 
 ### OLS as one specific setting
 
-Ordinary least squares is one specific setting of all five parts: conditional mean, Gaussian noise, identity link, a linear-in-the-parameters systematic component, least squares. Every other method on this site changes one of those five slots relative to OLS — but the methods aren't siblings that each pick a different slot independently. They **nest**: GLM ⊆ GAM ⊆ GAMM, where each one can do everything the one before it could, plus one more thing.
+Ordinary least squares is one specific setting of all five parts: conditional mean, Gaussian noise, identity link, a linear-in-the-parameters systematic component, least squares. Every other method on this site changes one of those five slots relative to OLS — but the methods aren't siblings that each pick a different slot independently. They **nest**: GLM ⊆ GAM ⊆ GAMM, where each one can do everything the one before it could, plus one more thing (DSCI 562; Wood, 2017, §4.4, §6.8).
 
 -   A **generalized linear model** changes the link and/or the random component — a log link, Poisson or Gamma noise — while keeping the systematic component linear in $\beta$. Setting the link to identity and the noise to Gaussian reduces a GLM to OLS.
--   A **generalized additive model** (see [Generalized Additive Models](gam.qmd)) keeps everything a GLM has — it can still use a log link, Poisson noise, whatever the data calls for — and additionally lets the systematic component itself be a smooth function, $\beta_0 + f(X)$, estimated from the data, instead of forcing $\beta_0 + \beta_1 X$. Restricting $f(X)$ to a straight line reduces a GAM to a GLM.
--   A **generalized additive mixed model** (see [Generalized Additive Mixed Models](gamm.qmd)) keeps everything a GAM has — link, noise family, smooth terms — and additionally lets the random component's independence assumption go, allowing correlated residuals. Dropping that correlation structure reduces a GAMM to a GAM.
+-   A **generalized additive model** (see [Generalized Additive Models](gam.qmd)) keeps everything a GLM has — it can still use a log link, Poisson noise, whatever the data calls for — and additionally lets the systematic component itself be a smooth function, $\beta_0 + f(X)$, estimated from the data, instead of forcing $\beta_0 + \beta_1 X$. Restricting $f(X)$ to a straight line reduces a GAM to a GLM (Wood, 2017, §4.1, §4.2.2).
+-   A **generalized additive mixed model** (see [Generalized Additive Mixed Models](gamm.qmd)) keeps everything a GAM has (link, noise family, smooth terms) and adds random effects, such as a separate intercept for each monitoring site, drawn from a common distribution (Wood, 2017, §6.8). Fit with `mgcv::gamm()`, it can also carry a residual correlation structure such as AR(1), which relaxes the random component's independence assumption; that is the part this site uses, for a single record with correlated residuals (Wood, 2017, §7.7.2). Dropping the random effects and the correlation structure reduces a GAMM to a GAM.
 
 ### What later chapters change
 
@@ -129,7 +130,7 @@ Framed this way, none of the methods on this site is a full departure from OLS. 
 
 ## "Linear" means linear in the coefficients, not straight in $X$
 
-A regression is a **linear model** if the systematic component is a linear combination of terms — linear in the $\beta$'s — regardless of whether those terms are linear functions of the original regressor.
+A regression is a **linear model** if the systematic component is a linear combination of terms — linear in the $\beta$'s — regardless of whether those terms are linear functions of the original regressor (DSCI 561).
 
 For example, `lm(y ~ x + I(x^2))` fits:
 
@@ -166,4 +167,5 @@ The rest of this site works through methods in order of increasing flexibility, 
 ## References
 
 - UBC Master of Data Science, *DSCI 561: Regression I*.
-- UBC Master of Data Science, *DSCI 562: Regression II*. [Lecture 1: Link Functions and Count Regression](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture1-glm-link-functions-and-count-regression.html).
+- UBC Master of Data Science, *DSCI 562: Regression II*. [Lecture 1: Link Functions and Count Regression](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture1-glm-link-functions-and-count-regression.html), [Lecture 7: Quantile Regression](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture7_quantile_regression.html).
+- Singh, A. and Singh, A.K. (2015). *ProUCL Version 5.1 Technical Guide: Statistical Software for Environmental Applications for Data Sets with and without Nondetect Observations*. EPA/600/R-07/041. U.S. Environmental Protection Agency, Office of Research and Development.

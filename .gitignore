@@ -33,3 +33,6 @@ outputs/figures/*.pdf
 # Quarto build artifacts (regenerate from source)
 /_site/
 /.quarto/
+
+# Working specs (not published vignette content)
+review_docs/*.md

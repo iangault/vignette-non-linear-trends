@@ -11,6 +11,8 @@ library(ggplot2)
 library(mgcv)
 library(nlme)
 library(lmtest)
+library(gratia)
+library(patchwork)
 source("R/utils.R")
 non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_types = FALSE)
 do_wq <- non_linear_wq |> filter(analyte == "Dissolved Oxygen")
@@ -18,56 +20,281 @@ do_wq <- non_linear_wq |> filter(analyte == "Dissolved Oxygen")
 
 ## Why this matters
 
-A plain GAM fit to Dissolved Oxygen's trend and season looks convincing on its own: a wiggly, edf-3.85 decline with a strongly significant F-test. Checking one more thing first — whether the residuals behind that test are actually independent — changes the answer. Once the autocorrelation they contain is modeled explicitly instead of ignored, the same trend term collapses to a straight line, still significant, but far simpler than the naive fit implied.
+Readings taken a month apart in a monitoring record are often more alike than readings taken a year apart. A dry spell, a warm stretch or a slow-moving process in the water body carries over from one sample to the next. Short-term serial correlation of this kind is typical of water-quality and flow records (Esterby, 1996). Most trend methods, including ordinary regression, the Mann-Kendall test and a generalized additive model (GAM), assume the opposite: that each reading's departure from the trend is independent of the last (DSCI 562).
 
-That difference is this chapter's real subject, not a side detail. A GAM's significance test assumes independent residuals the same way OLS does, and a regularly sampled monitoring record with a seasonal cycle is exactly the kind of series where that assumption tends to fail quietly, without the fit ever throwing an error. Catching it here is what turns "Dissolved Oxygen looks like it's dropping" into a claim worth putting in front of a regulator or client: the decline is real, it proceeds at a knowable, roughly constant rate, and it can be told apart from both the seasonal swing and the correlated noise riding along with it. The rest of this chapter builds that claim step by step — diagnosing the autocorrelation, fitting a corrected model, and confirming the correction actually did its job.
+When that assumption fails, two things go wrong. A record of correlated readings carries less independent information than the same number of independent ones, so the method reports more confidence than the data support: tests that reject too often and confidence intervals that are too narrow (Esterby, 1996; Morton and Henderson, 2008). And a flexible trend can mistake a run of high or low readings for a real change, so a report can describe changes, and dates for them, that are not there (Simpson, 2018, §4.5). Neither problem produces an error message; the fit looks as convincing as any other.
 
-## Picking up from the GAM chapter
+@fig-toy-noise shows the second problem on a made-up record. Two series are built from the same straight-line trend: one with independent noise (top row) and one with correlated noise of the same size (bottom row). Each series is then fit twice: on the left by a GAM that assumes the noise is independent, and on the right by a GAMM (defined below) that allows it to be correlated. Within a row the data are identical; only the assumption about the noise changes.
 
-The [GAM chapter](gam.qmd) fit Total Copper's irregular shape with a single smooth term, `s(year_frac)`, and read its significance test — an F-test behind an edf and a p-value — at face value. That test rests on an assumption: the residuals are **independent draws**, the same assumption ordinary least squares makes. Total Copper's residuals passed that check (lag-1 autocorrelation close to zero, Ljung-Box $p = 0.299$), so taking the test at face value there was defensible.
+```{r}
+#| label: fig-toy-noise
+#| echo: false
+#| fig-width: 9
+#| fig-height: 6.5
+#| fig-cap: "Two made-up monthly records built from the same straight-line trend (dashed), one with independent noise (top) and one with correlated AR(1) noise of the same size (bottom). Each row shows the same data fit two ways (blue line): a GAM that assumes independent noise (left) and a GAMM with an AR(1) correlation term (right)."
+toy_t <- seq(0, 12, length.out = 144)
+toy_mu <- 10 - 0.1 * toy_t
+set.seed(9)
+toy_iid <- rnorm(144, sd = 0.5)
+toy_ar <- as.numeric(arima.sim(list(ar = 0.8), n = 144, sd = 0.5 * sqrt(1 - 0.8^2)))
 
-This chapter works through an analyte, Dissolved Oxygen (DO), whose residuals don't pass that check, and navigates what to do about it — with the same goal as the rest of this site: inference on the observed record, not forecasting.
+toy_rows <- c("Data: independent noise", "Data: correlated noise (AR(1), φ = 0.8)")
+toy_cols <- c("Fit assumes independent noise (GAM)", "Fit allows correlated noise (GAMM, AR(1))")
+
+toy_fit <- function(y, model) {
+  d <- data.frame(t = toy_t, y = y)
+  m <- if (model == toy_cols[1]) {
+    gam(y ~ s(t, k = 10), data = d, method = "REML")
+  } else {
+    gamm(y ~ s(t, k = 10), data = d, correlation = corAR1(form = ~1),
+         method = "REML")$gam
+  }
+  data.frame(t = toy_t, mu = toy_mu, y = y, fit = fitted(m),
+             edf = summary(m)$s.table[1, "edf"],
+             data = toy_rows[1 + identical(y, toy_mu + toy_ar)], model = model)
+}
+toy <- do.call(rbind, lapply(list(toy_mu + toy_iid, toy_mu + toy_ar), function(y)
+  do.call(rbind, lapply(toy_cols, function(m) toy_fit(y, m)))))
+toy$data <- factor(toy$data, levels = toy_rows)
+toy$model <- factor(toy$model, levels = toy_cols)
+toy_edf <- tapply(toy$edf, list(toy$data, toy$model), `[`, 1)
+toy_lab <- unique(toy[, c("data", "model", "edf")])
+
+ggplot(toy, aes(t)) +
+  geom_point(aes(y = y), alpha = 0.4, color = "grey40") +
+  geom_line(aes(y = mu), linetype = "dashed") +
+  geom_line(aes(y = fit), color = "#0072B2", linewidth = 1.1) +
+  geom_text(data = toy_lab, aes(x = 11.8, y = max(toy$y),
+            label = sprintf("edf = %.1f", edf)),
+            hjust = 1, vjust = 1, size = 3.5) +
+  facet_grid(data ~ model, labeller = label_wrap_gen(width = 30)) +
+  labs(x = "Years", y = "Concentration",
+       title = "Same Data, Two Assumptions About the Noise") +
+  nlt_theme +
+  theme(panel.spacing.x = unit(1.5, "lines"),
+        panel.spacing.y = unit(1, "lines"))
+```
+
+In the top row, where the noise really is independent, both fits are straight lines (edf `r round(toy_edf[1, 1], 1)` and `r round(toy_edf[1, 2], 1)`); allowing for correlation does no harm here, and the GAMM estimates φ close to zero. The bottom row is where they differ. The readings drift above and below the trend for months at a time. The GAM has no way to represent that drift as noise, so it follows it as bends (edf `r round(toy_edf[2, 1], 1)`), and its significance test and intervals would treat those bends as real. The GAMM, fit to the same readings, attributes the drift to correlated noise and returns a straight line (edf `r round(toy_edf[2, 2], 1)`).
+
+This chapter works through a monthly Dissolved Oxygen (DO) record from one site: a seasonal cycle on top of a longer-term trend. It fits a GAM that assumes independent readings, checks that assumption, refits the record as a GAMM, and compares what each model says about whether and when DO declined. As on the rest of this site, the goal is inference on the observed record, not forecasting.
+
+## Mixed models for a single record
+
+A **generalized additive mixed model** (GAMM) is a GAM fit with mixed-model software. A **mixed model** is a regression with two kinds of terms, fixed effects and random effects (DSCI 562, Lecture 4). Both are usually introduced with groups, such as several monitoring sites. The DO record is one series from one site, so this section defines them on the trend smooth this chapter uses instead, starting from the GAM chapter's form of it.
+
+### The GAM, as in the last chapter
+
+The [GAM chapter](gam.qmd#the-gam-linear-predictor) wrote a trend as an intercept plus a smooth function of time, with the smooth built as a weighted sum of basis functions. Here $y_i$ is the reading at time $t_i$ (on the log scale, from Step 2 on):
+
+$$
+y_i = \beta_0 + f(t_i) + \varepsilon_i, \qquad
+f(t) = \sum_{m=1}^{k-1} \beta_m\, b_m(t), \qquad
+\varepsilon_i \overset{\text{iid}}{\sim} \mathcal{N}(0, \sigma^2)
+$${#eq-gam-recap}
+
+$k$ is the basis dimension, the number of basis functions set by the `k` argument of `s()`. It caps how flexible the smooth can be, and the penalty decides how much of that flexibility is used. The sum stops at $k - 1$ because one of the $k$ dimensions goes to the intercept: `mgcv` constrains each smooth to average zero over the data, so the overall level is carried by $\beta_0$ alone, and $f$ keeps $k - 1$ basis functions (`mgcv` documentation, `?identifiability`). What matters for this chapter is how those basis functions divide up, because that division is what separates the fixed effects from the random ones.
+
+### The GAMM in this chapter
+
+The trend here uses `s(year_frac, k = 10)`, so $k = 10$. The thin plate basis that `s()` uses by default is built so that its first two functions are a constant and a straight line, and the rest are curved (see [Kinds of basis](gam.qmd#kinds-of-basis)). The ten basis functions therefore fall into three groups:
+
+- **The constant** is the dimension absorbed into $\beta_0$ in @eq-gam-recap. This is why the GAM chapter's edf ceiling is $k - 1 = 9$, not 10.
+- **The straight line** is left alone by the penalty, which measures curvature and finds none in a line (see [How the smoothing penalty is fit](gam.qmd#how-the-smoothing-penalty-is-fit)).
+- **The other $k - 2$**, eight here, are curved, "wiggly" functions, and they are what the penalty shrinks.
+
+Writing the line and the wiggles as separate terms gives the same model with its parts named:
+
+$$
+y_i =
+\underbrace{\beta_0 + \beta_1 t_i}_{\substack{\text{fixed effects:}\\ \text{a straight line}}}
++ \underbrace{\sum_{j=1}^{k-2} b_j\, z_j(t_i)}_{\substack{\text{random effects:}\\ b_j \sim \mathcal{N}(0,\, \sigma_b^2)}}
++ \underbrace{\varepsilon_i}_{\substack{\text{residual noise:}\\ \text{correlated in time}}}
+$${#eq-mixed-trend}
+
+Here $z_1, \dots, z_{k-2}$ are the wiggly basis functions and $b_1, \dots, b_{k-2}$ their coefficients. The change of letter is deliberate and follows the usual mixed-model convention: Greek $\beta$ for fixed effects, Latin $b$ for random effects (DSCI 562, Lecture 4). The GAM chapter writes out the same split, an unpenalized straight line plus penalized wiggles (see [The GAM linear predictor](gam.qmd#the-gam-linear-predictor)). Two things change from @eq-gam-recap to @eq-mixed-trend: the two parts of $f$ are given the labels fixed and random, and the residuals are no longer assumed independent. The next three subsections take the three parts in turn.
+
+### Fixed effects: constants shared by every reading
+
+A **fixed effect** is an unknown constant, the same for every reading. In ordinary least squares (OLS), every coefficient is a fixed effect (DSCI 562, Lecture 4). Here $\beta_0$ and $\beta_1$, the intercept and slope of a straight line through time, are fixed. Each gets an estimate and a standard error, and each uses one degree of freedom.
+
+### Random effects: one variance in place of many coefficients
+
+The $k - 2$ wiggle coefficients $b_j$ (eight for this chapter's trend) could be handled in either of two ways.
+
+- **As more fixed effects.** Each $b_j$ is a free constant. The curve uses $k - 2$ more degrees of freedom, and nothing stops it from following the noise. This is an unpenalized regression spline, the problem the GAM chapter's penalty was introduced to prevent.
+- **As random effects.** The $b_j$ are treated as draws from one distribution centred on zero, $b_j \sim \mathcal{N}(0, \sigma_b^2)$. What the model estimates is the variance $\sigma_b^2$, one number that sets how large the wiggles can be. A small $\sigma_b^2$ shrinks them all toward zero and the curve toward a straight line; a large one leaves them nearly free. Each $b_j$ is then predicted given that variance.
+
+This is the sense in which, for a random effect, the variance of its distribution is estimated rather than each value. The curve's flexibility ends up between a straight line and the unpenalized spline, and the edf measures where. DSCI 562 (Lecture 4) makes the same trade for groups: replacing many free coefficients with one variance saves degrees of freedom and keeps the fixed effects' standard errors from being understated. The variance $\sigma_b^2$ plays the role of the GAM's smoothing parameter, and REML estimates it as it did in the GAM chapter (Wood, 2017, §5.8; Simpson, 2018, §3.2).
+
+"Random" here does not mean the wiggles were sampled from anything. The random-effect form is the device that lets mixed-model software estimate how smooth the curve should be. The more familiar use is a random intercept for each monitoring site, with the sites treated as a sample from a region. There, the variance describes real differences between sites, and the fixed effects describe the regional average, which is inference about a population (DSCI 562, Lecture 4). That model is outlined in [Extending this analysis](#extending-this-analysis); it is not the one fit here.
+
+### Correlated residuals: the correlation matrix
+
+The third part, $\varepsilon_i$, is not a random effect. A GAM assumes the residuals are independent with variance $\sigma^2$. A GAMM writes their covariance as $\sigma^2 \mathbf{R}$, where $\mathbf{R}$ is a **correlation matrix**: the covariance divided by the variance, with 1 on the diagonal and the correlation between each pair of residuals off it. Writing it this way lets the size of the noise, $\sigma^2$, and how it is correlated, $\mathbf{R}$, be estimated separately (Pinheiro and Bates, 2000, §5.1.3).
+
+The structure of $\mathbf{R}$ has to suit the data. A random intercept per site makes every pair of readings at a site equally correlated, $\sigma_b^2 / (\sigma_b^2 + \sigma^2)$, however far apart in time they are (DSCI 562, Lecture 4). Readings in a time series are more alike when they are close together in time, so this chapter uses an AR(1) structure, in which the correlation fades with separation. $\mathbf{R}$ and AR(1) are set out in Step 1.
+
+### The software: `mgcv::gamm()` and `nlme::lme()`
+
+`nlme` is R's package for linear and nonlinear mixed-effects models (Pinheiro and Bates, 2000), and `lme()` is its function for linear mixed models. `mgcv::gamm()` takes a model written like a `gam()` call, converts each smooth into the fixed and random parts of @eq-mixed-trend, and passes the result to `lme()` (`mgcv` documentation, `?gamm`). `lme()` supplies the two things this chapter needs: it estimates variance components such as $\sigma_b^2$ by REML, and its `correlation` argument fits a residual correlation structure such as AR(1). A plain `gam()` fit has no way to estimate the second.
+
+### What the inference is about
+
+The sample is 144 monthly readings from one site. The target is that site's median DO trend over the observed record: whether it changed, when, and by how much. The `gamm()` documentation describes this as the intended use: the random effects and correlation structure are there mainly to model residual correlation, and the main interest is inference about the terms in the model formula, the smooths included. The results do not describe other sites, and they do not forecast past the record. Correlated readings carry less independent information than their count suggests: 144 correlated months are worth fewer than 144 independent ones. Modelling $\mathbf{R}$ is what makes the trend's standard errors, tests and intervals reflect that.
+
+## Concepts this chapter draws on
+
+The analysis combines ideas from several areas (@fig-do-concepts). Regression supplies the framework and the fixed effects. GAMs supply the shape of the mean. Mixed models supply the fitting engine. Time-series methods supply the tools for the noise. All of them feed one model, and the inference is about one site's record.
+
+```{mermaid}
+%%| label: fig-do-concepts
+%%| fig-cap: "The ideas this chapter combines and where each one is used. Grey: the regression framework. Orange: the GAM, which shapes the mean. Purple: mixed models, which fit it. Teal: time-series ideas, which describe the noise. Green: what the inference covers, with what it does not cover dashed."
+%%{init: {"flowchart": {"subGraphTitleMargin": {"top": 6, "bottom": 18}}}}%%
+flowchart TB
+  subgraph REG["Regression framework"]
+    R1["OLS: linear in the parameters"]
+    R2["Fixed effects:<br/>constants with standard errors"]
+    R3["Assumes independent residuals"]
+  end
+  subgraph GAMS["GAM: the shape of the mean"]
+    G1["Basis functions:<br/>thin plate trend, cyclic season"]
+    G2["Wiggliness penalty and edf"]
+    G3["Simultaneous intervals<br/>on the level and slope"]
+  end
+  subgraph MIX["Mixed models: fitting"]
+    M1["Fixed part:<br/>intercept and straight line"]
+    M2["Random part: wiggles,<br/>one variance per smooth"]
+    M3["REML via nlme::lme()"]
+  end
+  subgraph TS["Time series: the noise"]
+    T1["ACF and PACF"]
+    T2["AR(1): correlation φ<sup>h</sup>"]
+    T3["Correlation matrix R"]
+    T4["Stationary residuals;<br/>white-noise check"]
+  end
+  GAMM(["<b>GAMM</b><br/>s(year_frac) + s(month)<br/>with AR(1) residuals"])
+  subgraph INF["Inference"]
+    I1["Sample: 144 monthly readings,<br/>one site"]
+    I2["Target: this site's median DO trend<br/>over the observed record"]
+    I3["Not covered: a population of sites;<br/>forecasts past the record"]
+  end
+  REG --> GAMS
+  GAMS --> GAMM
+  MIX --> GAMM
+  TS --> GAMM
+  I1 --> GAMM
+  GAMM --> I2
+  I2 -.- I3
+  classDef reg fill:#EEF0F2,stroke:#57717C,stroke-width:1.5px,color:#1a1a1a
+  classDef gam fill:#F7E6DF,stroke:#C97B63,stroke-width:1.5px,color:#1a1a1a
+  classDef mix fill:#ECE6F3,stroke:#8A6FB0,stroke-width:1.5px,color:#1a1a1a
+  classDef ts fill:#DDECEF,stroke:#5F97A4,stroke-width:1.5px,color:#1a1a1a
+  classDef inf fill:#E3F0E1,stroke:#5E9A5A,stroke-width:1.5px,color:#1a1a1a
+  classDef out fill:#FFFFFF,stroke:#9AA5AB,stroke-width:1.5px,stroke-dasharray:4 3,color:#5a5a5a
+  classDef model fill:#FFFFFF,stroke:#1a1a1a,stroke-width:2.5px,color:#1a1a1a
+  class R1,R2,R3 reg
+  class G1,G2,G3 gam
+  class M1,M2,M3 mix
+  class T1,T2,T3,T4 ts
+  class I1,I2 inf
+  class I3 out
+  class GAMM model
+  style REG fill:#F7F8F9,stroke:#57717C
+  style GAMS fill:#FCF4F0,stroke:#C97B63
+  style MIX fill:#F6F2FA,stroke:#8A6FB0
+  style TS fill:#EEF6F7,stroke:#5F97A4
+  style INF fill:#F2F8F1,stroke:#5E9A5A
+```
+
+## Building on the GAM chapter
+
+This chapter uses the tools introduced in the [GAM chapter](gam.qmd): smooth terms fit with a penalty on wiggliness, effective degrees of freedom (edf) as a measure of how flexible a fitted curve is, and simultaneous intervals on the trend and on its slope, used to mark where a record is rising, falling or flat (Simpson, 2018, §4.3–4.4). Readers new to GAMs may want to start there; each tool is briefly restated where it is used here. In that chapter, the Total Copper record passed the independence check (Ljung-Box $p = 0.299$), so its results stood as reported. The DO record does not pass it.
+
+## The analysis at a glance
+
+The question is whether median DO is changing across years, and if so when. The chapter fits three models to the same record to answer it. Each one changes one thing about the model before it, and the residual autocorrelation of each fit is what calls for the next (@fig-do-roadmap).
+
+```{mermaid}
+%%| label: fig-do-roadmap
+%%| fig-cap: "The three models fit in this chapter. Orange marks a change to the mean (what the model predicts); teal marks a change to the noise (what it assumes about the residuals). Steps 2 and 3 have the same smooth terms."
+flowchart LR
+  A["<b>1. Trend-only GAM</b><br/>s(year_frac)"]
+  B["<b>2. Naive GAM</b><br/>s(year_frac) + s(month)"]
+  C["<b>3. GAMM</b><br/>s(year_frac) + s(month)<br/>with AR(1) residuals"]
+  A -->|"add the season"| B
+  B -->|"allow correlated noise"| C
+  classDef neutral fill:#EEF0F2,stroke:#57717C,stroke-width:1.5px,color:#1a1a1a
+  classDef mean fill:#F7E6DF,stroke:#C97B63,stroke-width:2.5px,color:#1a1a1a
+  classDef noise fill:#DDECEF,stroke:#5F97A4,stroke-width:2.5px,color:#1a1a1a
+  class A neutral
+  class B mean
+  class C noise
+  linkStyle 0 stroke:#C97B63,stroke-width:2.5px
+  linkStyle 1 stroke:#5F97A4,stroke-width:2.5px
+```
+
+What calls for each step is the residual autocorrelation of the fit before it:
+
+- **1 → 2, change the mean.** The trend-only GAM's residual ACF swings on a 12-month cycle: with no term for month of year, the seasonal swing ends up in the residuals. Adding `s(month)` gives it a place in the mean.
+- **2 → 3, change the noise.** With the season modelled, the residual ACF is still positive at short lags: each month's residual is partly predictable from the last. The smooth terms stay the same; what changes is the assumption that the residuals are independent.
+- **3 → report.** The GAMM's normalized residuals pass the independence checks, so its trend and slope intervals can be read as they stand.
+
+The final model has three parts, and only one of them is the answer:
+
+| Part | Role | What happens to it |
+|---|---|---|
+| `s(year_frac)`, the trend | The answer | Reported: its level, its slope, and where it changes |
+| `s(month)`, the seasonal cycle | An adjustment | Kept in the model so the seasonal swing is not mistaken for trend or left in the residuals; not reported as a finding |
+| $\varepsilon_i$, the residuals | The noise | Modelled as AR(1) so the trend's uncertainty is not overstated |
+
+Steps 2 and 3 have the same mean structure, a trend smooth plus a seasonal smooth, so `s(month)` appears in both. What separates the GAM from the GAMM here is not which smooths are in the model but what is assumed about the residuals left after them. The naive GAM treats each month's residual as independent of the last; the GAMM lets each one carry over part of the previous month's. Step 1 leaves out the seasonal term, and its residuals show why it is needed.
 
 ## The shape in the record
 
 ```{r}
-#| label: do-raw-series
+#| label: fig-do-raw
 #| message: false
+#| fig-cap: "Dissolved Oxygen, monthly samples, raw scale, with a default `geom_smooth()` curve for a first look."
 ggplot(do_wq, aes(year_frac, result)) +
   geom_point(alpha = 0.5) +
-  geom_smooth(se = FALSE) +
-  labs(x = "Year", title = "Dissolved Oxygen — raw scale", y = "DO (mg/L)") +
+  geom_smooth(se = TRUE) +
+  labs(x = "Year", title = "Dissolved Oxygen, raw scale", y = "DO (mg/L)") +
   nlt_theme
 ```
 
-An annual saw-tooth rides on top of what looks like a slight downward drift, though the seasonal swing is large enough that the drift is hard to judge by eye — exactly the kind of shape worth checking for autocorrelation directly, rather than assuming the independence behind a GAM's significance test just holds.
+@fig-do-raw shows an annual saw-tooth on what may be a downward drift in the later years. The seasonal swing is large enough that the drift, and when it starts, are hard to judge by eye.
 
-### Checking the independence assumption
+## Step 1: a trend-only GAM, and the independence check
 
-Start with the plain single-term model the GAM chapter's approach would produce here — one smooth in `year_frac`, nothing else — and look at what its residuals leave behind:
+The first model is the GAM chapter's approach applied as is: one smooth in `year_frac` and nothing else. @fig-do-acf-single shows what its residuals leave behind:
 
 ```{r}
-#| label: do-naive-single-term
+#| label: fig-do-acf-single
+#| fig-cap: "Residual autocorrelation of the trend-only GAM. The dashed lines are approximate 95% bounds for independent residuals."
 fit_single <- gam(log(result) ~ s(year_frac, bs = "tp", k = 10), data = do_wq, method = "REML")
-acf(resid(fit_single), main = "Residual autocorrelation, trend-only GAM")
+acf_single <- acf(resid(fit_single), main = "Residual autocorrelation, trend-only GAM")
 ```
 
-**Autocorrelation** is what it looks like when the independence assumption fails: one observation's residual is predictable from a nearby one's, rather than the two being independent draws. Formally, it's the correlation between a residual series and a lagged copy of itself — residual at time $t$ against residual at time $t-1$, $t-2$, and so on, plotted at each lag above via `acf()`.
+**Autocorrelation** is what a failure of the independence assumption looks like: one observation's residual can be predicted from a nearby one's. Formally, it is the correlation between the residual series and a lagged copy of itself, residual at time $t$ against residual at time $t-1$, $t-2$ and so on, plotted at each lag by `acf()` (DSCI 574).
 
-Here it doesn't just decay, it oscillates: strongly positive at lag 1 (0.84), swinging down through zero to a trough around lag 6 (-0.87), then back up to a second peak around lag 12 (0.80) — observations six months apart move in opposite directions, observations twelve months apart move together again. That's the signature of an annual cycle, not generic short-range noise.
+Here it oscillates rather than decays: strongly positive at lag 1 (`r round(acf_single$acf[2], 2)`), down through zero to a trough at lag 6 (`r round(acf_single$acf[7], 2)`), then back up at lag 12 (`r round(acf_single$acf[13], 2)`). Observations six months apart move in opposite directions and observations twelve months apart move together, the signature of an annual cycle rather than short-range noise. `s(year_frac)` has no variable for month of year, so the seasonal swing ends up in the residuals.
 
-`s(year_frac)` has no variable to represent "month of year" with, so the seasonal swing doesn't disappear, it just relocates into the residuals as this lag-12 correlation pattern. An ACF plot like this one is doing double duty: it's evidence the independence assumption is shaky, the same role it plays later in this chapter, but read together with the record's raw shape, it's also a pointer toward what's missing — a periodic regressor — rather than just a generic warning that something's wrong.
+Read with the raw plot, the ACF does two jobs (DSCI 574):
+
+1. it flags the independence assumption; and
+2. it points to what the model is missing, a periodic term.
 
 ### Classifying the problem before choosing a fix
 
-A repeating annual cycle riding on a slow drift, with correlated noise on top, is a familiar shape in time-series analysis generally, and several established approaches exist for it. Which one applies here comes down to what the deliverable needs to be:
+An annual cycle on a slow drift, with correlated noise on top, is a familiar shape, and the right method depends on what the deliverable needs to be:
 
-- **The goal is inference on the observed record, not forecasting** — this site's premise throughout (see the [welcome page](../index.qmd)). That rules out picking a method purely because it projects forward well; the deliverable is a defensible test of whether Dissolved Oxygen is trending, not a prediction of next year's readings.
-- **The shape itself — a repeating annual cycle plus a slow drift plus serially correlated noise — is a classic seasonal-plus-trend decomposition problem.** Classical time-series tools are built for exactly this shape: ARIMA/SARIMA models it directly, exponential smoothing (ETS) forecasts it, `stl()` decomposes it descriptively (used later in this chapter as a cross-check). None of the three is built to hand back a significance test on a smooth trend term the way this chapter needs — they're forecasting or descriptive tools, not inferential ones in the sense the rest of this site uses.
+- **The goal is inference on the observed record, not forecasting**, this site's premise throughout (see the [welcome page](../index.qmd)). The deliverable is a defensible test of whether and when DO is trending, not a prediction of next year's readings.
+- **The shape is a seasonal-plus-trend decomposition problem.** Water-quality trend work has long written a record as trend plus a seasonal component with a one-year period plus a remainder, with harmonic seasonal terms and autoregressive models for the remainder among the established forms (Esterby, 1996). ARIMA/SARIMA models this shape, exponential smoothing (ETS) forecasts it, and `stl()` decomposes it descriptively (used later in this chapter as a cross-check). None of the three returns a significance test on a smooth trend term, which is what this chapter needs.
 
-The [GAM chapter](gam.qmd) answered a version of this same problem for Total Copper: a curve too irregular to fit with a hand-picked polynomial or hinge term, so it reached for a spline basis instead — many small basis functions built by `mgcv::gam()`, with a fitted penalty rather than an analyst deciding how much of that flexibility survives — while still keeping an ordinary significance test on the resulting smooth. That's the same move [Transformations](transformations.qmd) made with its hinge term, feature-engineering the regressor, just generalized and automated: a spline basis is many small hinge-like pieces instead of one, and the fitted penalty stands in for an analyst placing knots by eye.
+The GAM chapter's answer, a penalized smooth with a significance test, carries over. What this chapter adds comes with the "mixed" half of "generalized additive mixed model": a correlation structure on the residuals of one series, fit with the same mixed-model software.
 
-What this chapter adds on top is the "mixed" half of "generalized additive mixed model." That word does double duty in the mixed-model literature — it can mean grouped random effects (separate intercepts for different sites or subjects) or, as used here, an explicit correlation structure on one sequence of residuals; this chapter means the latter, and [Extending this analysis](#extending-this-analysis) below returns to the former. A GAM's mean structure carries over unchanged — still a sum of smooth terms, still linear in the parameters — but the assumption on the noise term does not:
+The mean structure is unchanged, still a sum of smooth terms and still linear in the parameters, but the assumption on the noise term changes:
 
 $$
 y_i = \beta_0 + \sum_{j} f_j(x_{ij}) + \varepsilon_i, \qquad
@@ -77,239 +304,522 @@ y_i = \beta_0 + \sum_{j} f_j(x_{ij}) + \varepsilon_i, \qquad
 \end{cases}
 $${#eq-gam-vs-gamm}
 
-Each $f_j$ is a spline-basis sum exactly as in the GAM chapter, and $\mathbf{R}$ is a correlation matrix: the identity (no correlation between observations) in a plain GAM, but free to carry off-diagonal structure in a GAMM — here, the AR(1) form built below. Nothing about how the mean function is assembled changes between the two models; what changes is whether the uncertainty reported around it is honest.
+#### The correlation matrix $\mathbf{R}$
 
-For DO's record, that mean function needs one more smooth than Total Copper's did. Adding `s(month)` alongside `s(year_frac)` is the same feature-engineering move as the hinge term and the GAM chapter's smooth before it — the ACF plot above plays the same diagnostic role a residuals-vs-fitted pattern played in Transformations, flagging a periodic regressor the model doesn't have yet — and the `corAR1()` structure covered later in this chapter is what fills in $\mathbf{R}$ on the right side of @eq-gam-vs-gamm.
+$\mathbf{R}$, defined in [Mixed models for a single record](#correlated-residuals-the-correlation-matrix), has zeros off the diagonal in a GAM; a GAMM fills them in from a chosen correlation structure (Simpson, 2018, §4.1). For four consecutive months:
+
+$$
+\underbrace{\mathbf{R}_{\text{GAM}} =
+\begin{bmatrix}
+1 & 0 & 0 & 0 \\
+0 & 1 & 0 & 0 \\
+0 & 0 & 1 & 0 \\
+0 & 0 & 0 & 1
+\end{bmatrix}}_{\text{independent: off-diagonal entries are 0}}
+\qquad
+\underbrace{\mathbf{R}_{\text{AR(1)}} =
+\begin{bmatrix}
+1 & \phi & \phi^2 & \phi^3 \\
+\phi & 1 & \phi & \phi^2 \\
+\phi^2 & \phi & 1 & \phi \\
+\phi^3 & \phi^2 & \phi & 1
+\end{bmatrix}}_{\text{correlation fades with separation}}
+$${#eq-r-matrix}
+
+$\mathbf{R}$ and the residual autocorrelation function (ACF) used throughout this chapter describe the same thing from two sides. The ACF is computed from the data: one correlation per lag $h$, between the residual series and a copy of itself shifted $h$ steps. $\mathbf{R}$ is the model's assumption, written out for every pair of residuals. Under AR(1), each entry depends only on how many months separate the two residuals, so every diagonal band of $\mathbf{R}$ holds a single value, $\phi^h$. That band value at each lag is the ACF the model implies.
+
+#### What AR(1) means
+
+An autoregressive model is a regression of a variable on its own past values (DSCI 574). In time-series forecasting it is applied to the series itself, to predict the next value. Here it is applied only to the residuals, and only to describe how they depend on one another; nothing is projected forward. AR(1), a first-order autoregressive process, says that each month's residual carries over a fraction $\phi$ of the previous month's residual, plus new independent noise (Pinheiro and Bates, 2000, §5.3.1):
+
+$$
+\varepsilon_i = \underbrace{\phi\, \varepsilon_{i-1}}_{\text{carried over from last month}} + \underbrace{u_i}_{\text{new, independent noise}}
+$${#eq-ar1}
+
+$\phi$ (phi) is the only parameter: the correlation between adjacent months, somewhere between −1 and 1. Because the carry-over compounds from month to month, residuals $h$ months apart have correlation $\phi^h$, which is the pattern in @eq-r-matrix. With $\phi = 0$ the residuals are independent and the model is a plain GAM; with $\phi$ close to 1, a spell of high or low readings lasts many months. Once this is modelled, a run of high readings counts as less independent evidence of a trend than it would under the independence assumption.
+
+**Stationary residuals, not stationary data.** ARIMA-type models require a stationary series, one whose mean, variance and autocorrelation do not change over time, and they get there by differencing away the trend and seasonal cycle (DSCI 574). The GAMM does not need the DO record to be stationary, and it applies no differencing: the trend is what this chapter is trying to estimate, so removing it is not an option. Instead the two smooth terms model the changing mean, and the residuals left after them are the trend- and season-removed series. The AR(1) assumption applies to those residuals, and with $|\phi| < 1$ it describes a stationary process: one $\phi$ and one $\sigma^2$ hold across the whole record. The log transform below plays the variance-stabilizing role it plays in time-series work, so that a single $\sigma^2$ is a fair description.
+
+## Step 2: the naive GAM, trend and season with independent residuals
 
 ### Two smooth terms, two different jobs
 
-The fix, then, is the two-term model already implied above: one smooth for the drift, one for the cycle. Those two components are `s(year_frac)` and `s(month)`, added together on the log scale. Each is driven by a different variable and captures a different kind of movement:
+DO's mean function needs one more smooth than copper's did. The model adds `s(month)` alongside `s(year_frac)`, both on the log scale:
 
-- **`s(year_frac)` — the long-term trend.** `year_frac` is the fractional year (2015.25 is March 2015) and increases once across the whole record, so this term captures whether Dissolved Oxygen is drifting up or down over years.
-- **`s(month)` — the within-year seasonal cycle.** `month` is 1–12 and repeats every year, so this term captures the recurring swing from, say, higher DO in cool months to lower DO in warm ones. It's fit with a cyclic spline (`bs = "cc"`) so the curve meets itself at the year boundary instead of jumping from December to January.
+- **`s(year_frac)`, the long-term trend.** `year_frac` is the fractional year since the start of the record and increases once across it, so this term captures whether DO drifts up or down over years. It is the term this chapter's inference is about.
+- **`s(month)`, the within-year cycle.** `month` is 1–12 and repeats every year, so this term captures the recurring swing between cool and warm months. It uses a cyclic spline (`bs = "cc"`) so the curve meets itself at the year boundary instead of jumping between December and January (`mgcv` documentation, `?smooth.construct.cc.smooth.spec`).
 
-Add the two together for a given date and you get the model's **fitted value**: its prediction of log(DO) on that date. The **residual** is what's left over — observed value minus fitted value — whatever those two smooths didn't explain. The trend term, `s(year_frac)`, is what this chapter's inference is about.
+Their sum for a given date is the model's fitted value of log(DO); the residual is what the two smooths leave unexplained.
 
-### Does `log(result)` still make sense here
+**Two variables, twenty columns.** The model has two input variables, but more than two columns. As in the GAM chapter, each `s()` expands its variable into a set of basis functions, and each basis function is one column of the model matrix (see [Why a GAM still counts as a linear model](gam.qmd#why-a-gam-still-counts-as-a-linear-model)). `s(year_frac, k = 10)` contributes nine columns: ten basis functions, less one constant that the intercept already carries. `s(month, bs = "cc", k = 12)` contributes ten: the cyclic constraint that joins December to January removes one more. With the intercept, log(DO) is modelled as a weighted sum of twenty columns. That is why the model is still linear: it is linear in the twenty coefficients, however curved the two fitted functions are (see [The regression framework](regression-framework.qmd)).
 
-Dissolved Oxygen's concentration is set by gas solubility, reaeration, and biological demand, not by dilution or loading the way Total Nitrogen or Specific Conductance are, so the usual multiplicative argument for logging concentration data doesn't obviously carry over. Checked empirically instead: fitting the same additive-smooth structure on both scales and comparing residual homoscedasticity —
+**One fit, not two.** All twenty coefficients are estimated together, in one penalized fit. The trend is not fit first and the season second, and the record is not fit one section at a time. As with the coefficients of a multiple regression, each smooth is estimated with the other in the model: the trend is the long-term change after the seasonal swing has been accounted for, and the seasonal curve is the within-year swing after the trend has. Each curve can still bend in one part of its range without being forced to bend everywhere else; each smooth's penalty sets how much bending the data justify.
 
-- raw-scale fit: Breusch-Pagan $p = 0.0024$ (fails)
-- log-scale fit: Breusch-Pagan $p = 0.133$ (passes)
+**Additive.** The fitted value for one sample is the intercept, plus the trend curve's value at that date, plus the seasonal curve's value for that month. Two things follow. The seasonal curve has the same shape in every year, and the trend curve is the same whichever month is sampled. A seasonal swing that grew, shrank or shifted over the record would need an interaction between the two variables, such as a tensor product smooth `te(year_frac, month)` (`mgcv` documentation, `?te`), which is outside this chapter.
 
-`log(result)` is used from here on, on the strength of that check rather than the weaker a priori argument.
+### Checking the scale
 
-## The naive fit: trend and season, assuming independent residuals
+The same two-smooth structure was fit on both scales and the residual spread compared:
+
+- raw-scale fit: Breusch-Pagan $p = 0.0014$ (fails)
+- log-scale fit: Breusch-Pagan $p = 0.72$ (passes)
+
+`log(result)` is used from here on. As in the GAM chapter, back-transformed fits are medians, and log-scale slopes are reported as percent change per year in the median (see [Transformations](transformations.qmd)).
+
+The choice of scale is also a choice of decomposition. Time-series decomposition distinguishes an **additive** form, $y = T + S + R$, suited to a seasonal swing and noise whose size does not depend on the level of the series, from a **multiplicative** form, $y = T \times S \times R$, suited to swings and noise that grow in proportion to it (DSCI 574). The model is additive on the log scale, and exponentiating it gives the multiplicative form on the raw scale:
+
+$$
+\mathrm{DO}_i = e^{\beta_0} \times e^{f_{\text{trend}}(t_i)} \times e^{f_{\text{season}}(m_i)} \times e^{\varepsilon_i}
+$$
+
+So the seasonal swing and the noise are modelled as proportions of the level, not fixed amounts in mg/L, which is what the failed raw-scale Breusch-Pagan test pointed to. The `stl()` cross-check later in the chapter is run on log(DO) for the same reason.
+
+### Fitting the naive GAM
 
 ```{r}
 #| label: do-gam-fit
-# bs = "tp": thin-plate spline for the long-term trend, as in the GAM chapter
-# bs = "cc": cyclic cubic spline for month, so the fitted curve meets itself at the year boundary
-#            instead of drawing an artificial jump between December and January
-# knots = list(month = ...): pins that boundary at 0.5/12.5 rather than 1/12, so month itself
-#            (not some padding value) is where the cycle closes
+# bs = "tp": thin plate regression spline for the long-term trend, as in the GAM chapter
+# bs = "cc": cyclic cubic spline for month, so the curve meets itself at the year boundary
+# knots = list(month = ...): close the cycle at 0.5 and 12.5, half a month either side of
+#            January and December, so December and January are one month apart like any other pair
 fit_gam <- gam(log(result) ~ s(year_frac, bs = "tp", k = 10) + s(month, bs = "cc", k = 12),
                data = do_wq, knots = list(month = c(0.5, 12.5)), method = "REML")
 summary(fit_gam)
 ```
 
-Read at face value, `s(year_frac)` looks like real nonlinear structure — edf 3.85, not a straight line — on top of a strongly significant seasonal term. Before trusting that, it's worth checking whether adding `s(month)` actually fixed the independence problem flagged above, or only reduced it:
-
 ```{r}
-#| label: do-acf
-acf(resid(fit_gam), main = "Residual autocorrelation, naive GAM")
+#| label: fig-do-terms
+#| fig-width: 9
+#| fig-height: 3.8
+#| fig-cap: "The naive GAM's two fitted smooths on the log scale: the trend, `s(year_frac)` (left), and the seasonal cycle, `s(month)` (right). Each is centred on zero; the intercept carries the overall level. Grey points are partial residuals: each sample's residual added to that term's fitted value, so they scatter around the curve as the data do once the other term is accounted for. The orange point marks one sample, April of year 6, whose fitted value is the intercept plus the two marked values."
+# one example sample: April of year 6
+ex_row <- which(do_wq$month == 4 & floor(do_wq$year_frac) == 6)
+ex_terms <- predict(fit_gam, newdata = do_wq[ex_row, ], type = "terms")
+ex_int <- unname(coef(fit_gam)[1])
+ex_fit <- ex_int + sum(ex_terms)
+
+# each smooth evaluated on its own grid; the other variable is a placeholder that
+# type = "terms" keeps out of the column being plotted
+trend_grid <- data.frame(year_frac = seq(min(do_wq$year_frac), max(do_wq$year_frac), length.out = 200),
+                         month = 1)
+# 0.5 to 12.5: the full cycle between the knots that join December to January
+season_grid <- data.frame(year_frac = 0, month = seq(0.5, 12.5, length.out = 200))
+trend_grid$term <- predict(fit_gam, newdata = trend_grid, type = "terms")[, "s(year_frac)"]
+season_grid$term <- predict(fit_gam, newdata = season_grid, type = "terms")[, "s(month)"]
+
+# partial residuals: each sample's fitted term value plus its residual,
+# the points plot.gam(residuals = TRUE) draws
+obs_terms <- predict(fit_gam, type = "terms")
+partial <- data.frame(year_frac = do_wq$year_frac, month = do_wq$month,
+                      trend = obs_terms[, "s(year_frac)"] + resid(fit_gam),
+                      season = obs_terms[, "s(month)"] + resid(fit_gam))
+
+p_trend <- ggplot(trend_grid, aes(year_frac, term)) +
+  geom_hline(yintercept = 0, colour = "grey60", linewidth = 0.3) +
+  geom_point(data = partial, aes(year_frac, trend), alpha = 0.35, colour = "grey40") +
+  geom_line(colour = "steelblue", linewidth = 1) +
+  annotate("point", x = do_wq$year_frac[ex_row], y = ex_terms[, "s(year_frac)"],
+           colour = "#D55E00", size = 3) +
+  labs(x = "Year", y = "Contribution to log(DO)", title = "Trend, s(year_frac)") +
+  nlt_theme
+p_season <- ggplot(season_grid, aes(month, term)) +
+  geom_hline(yintercept = 0, colour = "grey60", linewidth = 0.3) +
+  # small horizontal jitter so the twelve readings in each month do not stack
+  geom_point(data = partial, aes(month, season), alpha = 0.35, colour = "grey40",
+             position = position_jitter(width = 0.12, height = 0, seed = 1)) +
+  geom_line(colour = "steelblue", linewidth = 1) +
+  annotate("point", x = 4, y = ex_terms[, "s(month)"], colour = "#D55E00", size = 3) +
+  scale_x_continuous(breaks = 1:12, labels = month.abb) +
+  labs(x = "Month", y = NULL, title = "Seasonal cycle, s(month)") +
+  nlt_theme
+p_trend + p_season
 ```
 
-**Lag-1 autocorrelation** in the residuals is a little over 0.5 — down from the single-term model's 0.84, but still far from zero. The residual left over after month and year_frac's smooths are accounted for is still substantially predictable from the previous month's residual, which an independent-errors model has no way to represent. `s(month)` absorbed the seasonal cycle it was added for, but it didn't absorb everything the ACF plot flagged: this is the assumption `s(year_frac)`'s edf-of-3.85 and its F-test were resting on, and it doesn't hold here. Practically, that means the naive fit's standard errors are too small and its F-test overstates how confident the data actually let it be — correlated residuals carry less independent information than the same number of uncorrelated ones would, so treating them as independent understates the uncertainty in both the trend's shape and its significance.
+@fig-do-terms shows the two smooths as fit. For the April sample in year 6, the fitted value of log(DO) is the intercept (`r sprintf("%.3f", ex_int)`), plus the trend's value at that date (`r sprintf("%.3f", ex_terms[, "s(year_frac)"])`), plus April's value on the seasonal curve (`r sprintf("%.3f", ex_terms[, "s(month)"])`): `r sprintf("%.3f", ex_fit)`, a fitted median of `r round(exp(ex_fit), 1)` mg/L against an observed `r round(do_wq$result[ex_row], 1)` mg/L. Every other sample is built the same way, from the same two curves. The seasonal curve is the adjustment, and the trend curve is what the rest of the chapter tests.
 
-The concern isn't hypothetical: a smoothing penalty free to explain slow-moving, positively-autocorrelated noise as if it were curvature will do just that, because from the fitting procedure's point of view, a real multi-year wiggle and a run of correlated residuals both look like "structure the flat line doesn't capture."
+Read at face value, `s(year_frac)` is a wiggly curve (edf `r round(summary(fit_gam)$s.table["s(year_frac)", "edf"], 2)`) on top of a strongly significant seasonal term. @fig-do-acf-naive checks whether adding `s(month)` fixed the independence problem or only reduced it:
 
-## The corrected fit: an explicit AR(1) correlation structure
+```{r}
+#| label: fig-do-acf-naive
+#| fig-cap: "Residual autocorrelation of the naive GAM, with trend and seasonal smooths but independent residuals."
+acf_naive <- acf(resid(fit_gam), main = "Residual autocorrelation, naive GAM")
+```
+
+**The season is handled.** The 12-month oscillation is gone, so `s(month)` absorbed the seasonal cycle. Lag-1 autocorrelation falls from `r round(acf_single$acf[2], 2)` to `r round(acf_naive$acf[2], 2)`, because much of the earlier value was the cycle itself: neighbouring months sit close together on the seasonal curve.
+
+**The carry-over is not.** A lag-1 value of `r round(acf_naive$acf[2], 2)` means each month's residual is still partly predictable from the previous month's. That is expected in a time-ordered record. Conditions that push DO above or below its usual level for the time of year, such as a warm spell or a low-flow period, last longer than a month, so one month's departure carries into the next. The two smooths describe the average level at each date and each time of year; neither describes how one month's departure carries into the next. Adding more smooth terms would not change that, because the carry-over belongs to the noise, not the mean.
+
+**Why that matters.** The naive GAM assumes independent residuals, and the dependence affects it in two ways:
+
+- **Overstated certainty.** Correlated months carry less independent information than their count suggests, so the standard errors are too small and the F-test overstates the evidence for a trend (Morton and Henderson, 2008).
+- **A trend that follows the noise.** To the penalty, a run of high or low residuals looks the same as a real bend, so the trend bends to follow it (Simpson, 2018, §4.5; Morton and Henderson, 2008, §3). The runs are visible in the trend panel of @fig-do-terms. The same bending also hides part of the correlation, so `r round(acf_naive$acf[2], 2)` is likely an understatement; the corrected fit below shows by how much.
+
+The fix is to change the assumption about the noise rather than the mean: keep both smooths and let the residuals be correlated. That is the GAMM in Step 3.
+
+## Step 3: the GAMM, the same smooths with AR(1) residuals
+
+With autocorrelation confirmed, there are two responses: model it, or decompose the series descriptively (as `stl()` does later in this chapter). This chapter models it, because only that route returns a corrected significance test.
+
+The correction changes the model's assumption about the residuals, not the data. The GAMM fits the same readings with the same two smooths; `s(month)` stays in the model because it is part of the mean, and the correlation term describes only what the mean leaves over. What changes is how much independent information the readings are treated as carrying: a run of correlated months counts for less than the same number of independent ones, which widens the trend's intervals and gives the penalty less reason to bend the trend toward the run.
+
+### The full model as `lme()` fits it
+
+`gamm()` splits every smooth into fixed and random parts, as @eq-mixed-trend did for the trend alone (`mgcv` documentation, `?gamm`; Wood, 2017, §5.8). Written out for the full DO model, with $t_i$ for `year_frac` and $m_i$ for `month`:
+
+$$
+\log(\mathrm{DO}_i) =
+\underbrace{\beta_0}_{\text{fixed}}
++ \overbrace{\underbrace{\beta_1 t_i}_{\text{fixed}}
+  + \underbrace{\sum_{j=1}^{8} b_j\, z_j(t_i)}_{\substack{\text{random:}\\ b_j \sim \mathcal{N}(0,\, \sigma_t^2)}}}^{\texttt{s(year\_frac)}}
++ \overbrace{\underbrace{\sum_{j=1}^{10} c_j\, w_j(m_i)}_{\substack{\text{random:}\\ c_j \sim \mathcal{N}(0,\, \sigma_m^2)}}}^{\texttt{s(month)}}
++ \underbrace{\varepsilon_i}_{\substack{\text{residual noise:}\\ \text{AR(1)}}}
+$${#eq-gamm-fixed-random}
+
+- **Fixed:** the intercept $\beta_0$ and a straight-line slope $\beta_1$ in time. In the fitted `lme` object these appear as `X(Intercept)` and `Xs(year_frac)Fx1`.
+- **Random:** the coefficients $b_j$ on the trend's eight wiggly basis functions $z_j$, and all ten coefficients $c_j$ on the cyclic seasonal basis functions $w_j$. The cyclic smooth has no fixed part, because its only unpenalized component, a constant, is already carried by $\beta_0$. Each smooth's coefficients share one variance, $\sigma_t^2$ (the $\sigma_b^2$ of @eq-mixed-trend) or $\sigma_m^2$, and that variance plays the role of the smoothing parameter: $\lambda = \sigma^2 / \sigma_t^2$, so a small variance shrinks the wiggles toward a straight line (or, for the season, toward no cycle at all).
+- **Residual noise:** $\varepsilon_i$ is random too, but it is not a random effect. It carries the AR(1) correlation chosen in the next section, through the `correlation` argument of `lme()`.
+
+### Choosing AR(1)
+
+**What AR(1) assumes.** Each month's residual carries over a fraction $\phi$ of the previous month's, plus new noise (@eq-ar1). The correlation between two residuals therefore fades with their separation in time: $\phi$ one month apart, $\phi^2$ two months apart, and so on toward zero.
+
+**The ACF suggests it.** That fading is what the naive fit's ACF shows in @fig-do-acf-naive: positive at short lags, falling as the lags get longer, with no seasonal spike left. This is short-range dependence, the pattern AR(1) describes (DSCI 574), and Morton and Henderson (2008, §3) note that AR(1) often works well for water-quality residuals. The ACF guides the choice of structure but is not used to estimate $\phi$: the naive trend has absorbed part of the correlation, so $\phi$ is estimated together with the smooths instead.
+
+**The PACF confirms it.** The ACF cannot show how many past months matter, because correlation passes along a chain: if each month is linked to the one before, months two apart are linked through the month between them. The **partial autocorrelation function** (PACF) removes those indirect links, giving the correlation at each lag once the shorter lags are accounted for. An AR(1) process has an ACF that tails off and a PACF that cuts off after lag 1 (DSCI 574).
+
+```{r}
+#| label: fig-do-pacf-naive
+#| fig-cap: "Partial autocorrelation of the naive GAM's residuals. The dashed lines are approximate 95% bounds for independent residuals."
+pacf_naive <- pacf(resid(fit_gam), lag.max = 24, main = "Residual partial autocorrelation, naive GAM")
+```
+
+@fig-do-pacf-naive has that pattern: a clear spike at lag 1 and little after it, so once last month is accounted for, earlier months add little. AR(1) is the structure used, and the diagnostics at the end of the chapter check whether it was enough.
+
+This follows the template Wood (2017, §7.7.2) uses for daily Cairo air temperature: a cyclic seasonal smooth plus a smooth long-term trend, fit first as a GAM and then refit with `gamm()` and `corAR1()` once the residuals showed short-term autocorrelation.
 
 ### Fitting the model
 
-With real autocorrelation confirmed, there are two ways to respond: model it explicitly, or fit a separate decomposition (like `stl()`, used later in this chapter as a visual cross-check) to see the trend and seasonal components apart from the noise. This chapter takes the first path, because only it comes with a corrected significance test — decomposition tools describe a series, they don't test it.
-
-A generalized additive **mixed** model keeps the same additive-smooth structure — the same `s(year_frac) + s(month)`, the same basis functions, the same idea of a fitted penalty deciding how much wiggle survives — and adds one thing: an explicit model for the residual autocorrelation just confirmed, rather than assuming it's zero.
-
-### Why `nlme::lme()`, of all things
-
-`gamm()` reaches for `nlme::lme()` — ordinarily the workhorse for the grouped, random-intercept kind of mixed model (one intercept per site, per patient, per subject, each drawn as $b_{0,j} \sim \mathcal{N}(0, \sigma_0^2)$ around a shared population value $\beta_0$) — because a spline's wiggle penalty and a random effect's variance are the same shrinkage device under the hood: both pull an estimate toward zero by an amount set by an estimated variance, smaller variance meaning more shrinkage. Wood (2017, §5.8) makes that equivalence precise: any penalized spline can be rewritten as a fixed, unpenalized part plus a random-effect part, at which point `lme()`'s existing variance-component machinery is exactly what's needed to estimate how much of the smooth's wiggliness survives.
-
-This chapter uses the other sense of "mixed," though. Dissolved Oxygen's 144 monthly readings are one time series, not several sites or subjects each contributing their own intercept, so there's no group here for a random effect to describe. What this chapter borrows from `lme()` is the separate `correlation` argument sitting alongside its random-effects machinery, built for exactly this case: modeling dependence **within** a single group's residuals rather than variance **across** several groups' intercepts. Both jobs happen to live inside the same `nlme::lme()` call, but they solve different problems — one is discussed further in [Extending this analysis](#extending-this-analysis) below, where a genuine multi-site version of this model would need both at once.
-
-The specific choice of AR(1), rather than some other correlation structure, comes straight out of the shape of the naive fit's ACF plot above, not just its lag-1 height: at 0.52, 0.25, and 0.10 for lags 1 through 3, each is roughly half the one before — a geometric decay, which is exactly the signature the $\phi^{|h|}$ form below produces. That's a different shape from the oscillating, up-down-up pattern the single-term model's ACF showed before `s(month)` was added (the seasonal signal, not autocorrelated noise), and it's what rules in a simple first-order autoregressive structure specifically, rather than something built around a seasonal lag or a richer autoregressive-moving-average form (`corARMA()`, covered in [Extending this analysis](#extending-this-analysis)).
-
-`mgcv::gamm()` fits this correlation piece by handing the smooth-term machinery to `nlme::lme()` underneath, which accepts a `correlation` argument — here, `corAR1()`, an **AR(1) structure** (first-order autoregressive: each residual depends on the one immediately before it) where the correlation between any two residuals decays geometrically with how far apart in time they are:
-
-$$\mathrm{Corr}(\varepsilon_i, \varepsilon_{i-h}) = \phi^{|h|}, \qquad h = 0, 1, 2, \dots$$
-
-A single parameter $\phi$ (with $|\phi| < 1$ for the process to be stationary) sets that whole decay: $h = 1$ apart (adjacent months) gives correlation $\phi$ itself, $h = 2$ apart gives $\phi^2$, and so on, fading toward zero for observations far apart rather than dropping to zero immediately after one lag. Nothing about the mean structure changes; what changes is that the smooth terms' significance tests now account for the autocorrelation, which is the point of this chapter.
-
-This case study follows the same template Wood (2017, §7.7.2) uses for nearly a decade of daily Cairo air temperature: a cyclic seasonal smooth plus a smooth long-term trend, fit first as a plain GAM and then refit with `gamm()` and a `corAR1()` correlation structure once the residuals showed short-term autocorrelation the seasonal and trend smooths hadn't absorbed — there, too, the point of adding the AR(1) term was to establish whether a real temperature trend survived once auto-correlated noise was modeled explicitly rather than left for the smooths to soak up.
+The model is fit by REML, as in the [GAM chapter](gam.qmd#how-the-smoothing-penalty-is-fit), which here estimates the smoothing parameters and $\phi$ together (Simpson, 2018, §3.2). `gamm()` defaults to ML, so REML is set explicitly.
 
 ```{r}
 #| label: do-gamm-fit
 # same smooth terms as fit_gam above; only the correlation argument is new
-# corAR1(form = ~1): lag-1 autocorrelation ordered by row, since do_wq is already one
-#            evenly-spaced monthly series with no separate sites/groups to keep apart
+# corAR1(form = ~1): AR(1) ordered by row, since do_wq is one evenly spaced monthly series
+# method = "REML": gamm() defaults to ML
 fit_gamm <- gamm(log(result) ~ s(year_frac, bs = "tp", k = 10) + s(month, bs = "cc", k = 12),
                   data = do_wq, knots = list(month = c(0.5, 12.5)),
-                  correlation = corAR1(form = ~1))
+                  correlation = corAR1(form = ~1), method = "REML")
 summary(fit_gamm$gam)
 ```
 
-### Confirming the correlation structure is earning its keep
-
 ```{r}
 #| label: do-gamm-phi
-# unconstrained = FALSE: return phi on its natural [-1, 1] scale, not lme's internal optimization scale
+# unconstrained = FALSE: phi on its natural (-1, 1) scale, not lme's internal optimization scale
 phi <- coef(fit_gamm$lme$modelStruct$corStruct, unconstrained = FALSE)
 phi
 
-# same model, correlation argument dropped, as the no-AR(1) comparison for the AIC check below
+# same model without the correlation argument, for the AIC comparison;
+# both have the same smooth terms, so their REML-based AICs can be compared
 fit_gamm0 <- gamm(log(result) ~ s(year_frac, bs = "tp", k = 10) + s(month, bs = "cc", k = 12),
-                   data = do_wq, knots = list(month = c(0.5, 12.5)))
-AIC(fit_gamm0$lme, fit_gamm$lme)
+                   data = do_wq, knots = list(month = c(0.5, 12.5)), method = "REML")
+aic_do <- AIC(fit_gamm0$lme, fit_gamm$lme)
+aic_do
 ```
 
-Three results, together:
+Three results:
 
-- The estimated correlation is $\hat\phi \approx$ `r round(phi, 2)`.
-- The AR(1) model's AIC is decisively lower than the no-correlation version's — the correlation structure is earning its keep rather than adding a parameter for its own sake.
-- Once it's in the model, `s(year_frac)`'s edf drops back to 1.00: a straight line.
+- The estimated correlation between adjacent months is $\hat\phi \approx$ `r round(phi, 2)`.
+- The AR(1) model's AIC is `r round(aic_do$AIC[1] - aic_do$AIC[2])` lower than the same model without it, for one extra parameter. Both models have the same smooth terms, which is what allows REML-based AICs to be compared (Faraway, 2005, §8.2; Simpson, 2018, §3.2).
+- With the correlation modelled, `s(year_frac)`'s edf drops from `r round(summary(fit_gam)$s.table["s(year_frac)", "edf"], 2)` to `r round(summary(fit_gamm$gam)$s.table["s(year_frac)", "edf"], 2)`: one gentle bend instead of several wiggles.
 
-The wiggle the naive fit found on the trend term evaporates once the residual correlation is given somewhere else to go. The smooth term is still significant ($p = 8.1\times10^{-6}$) — there's a real long-term decline here — but it's a simple, constant-rate decline, much simpler than the trajectory the naive GAM implied.
-
-### Corrected rate per year
+The trend is still significant ($p$ `r p_tr <- summary(fit_gamm$gam)$s.table["s(year_frac)", "p-value"]; if (p_tr < 0.001) "< 0.001" else paste("=", round(p_tr, 3))`).
 
 ```{r}
-#| label: do-gamm-rate
-# type = "terms", terms = "s(year_frac)": returns only that smooth's contribution, so the
-# month column's value below doesn't matter — it's a placeholder to satisfy predict(), not an input to this term
-year_grid <- data.frame(year_frac = range(do_wq$year_frac), month = c(1, 1))
-pred <- predict(fit_gamm$gam, newdata = year_grid, type = "terms", terms = "s(year_frac)")
-slope_per_year <- diff(pred[, 1]) / diff(year_grid$year_frac)
-slope_per_year
-(exp(slope_per_year) - 1) * 100
+#| label: do-gamm-k
+# basis-dimension check: double k for the trend and compare edf (?choose.k)
+fit_gamm_k20 <- gamm(log(result) ~ s(year_frac, bs = "tp", k = 20) + s(month, bs = "cc", k = 12),
+                      data = do_wq, knots = list(month = c(0.5, 12.5)),
+                      correlation = corAR1(form = ~1), method = "REML")
+edf_k20 <- summary(fit_gamm_k20$gam)$s.table["s(year_frac)", "edf"]
+# same doubling for the naive GAM, for contrast
+fit_gam_k20 <- gam(log(result) ~ s(year_frac, bs = "tp", k = 20) + s(month, bs = "cc", k = 12),
+                   data = do_wq, knots = list(month = c(0.5, 12.5)), method = "REML")
+edf_naive_k20 <- summary(fit_gam_k20)$s.table["s(year_frac)", "edf"]
 ```
 
-The corrected rate is about `r sprintf("%.2f%%", (exp(slope_per_year) - 1) * 100)` per year.
+**Basis dimension.** The GAM chapter's `k.check()` is not used here: its k-index compares residuals that are neighbours in time, so residual autocorrelation pulls it down whether or not `k` is too small (`mgcv` documentation, `?k.check`). The check `?choose.k` suggests instead, doubling `k`, leaves the GAMM's trend unchanged: edf `r round(summary(fit_gamm$gam)$s.table["s(year_frac)", "edf"], 2)` at `k = 10` and `r round(edf_k20, 2)` at `k = 20`, well below the ceiling of 9. The naive GAM's trend does not settle the same way: its edf rises from `r round(summary(fit_gam)$s.table["s(year_frac)", "edf"], 2)` to `r round(edf_naive_k20, 2)`, using the extra room to follow the correlated runs.
 
-### Fitted curve against the raw record
+### Irregular sampling: the continuous-time version
 
-Before isolating the trend on its own, it's worth checking the full fitted curve — trend and season together — against the raw points it was fit to:
+`corAR1(form = ~1)` orders residuals by row and treats each step as one unit apart. That suits the DO record, which is synthetic and has one sample every month with no gaps. Real monitoring records often have missed or uneven visits (Esterby, 1996). For those, Simpson (2018, §4.1) uses a **continuous-time AR(1)** structure, `corCAR1()`, in which the correlation fades with the actual time between samples rather than a count of steps (Pinheiro and Bates, 2000, §5.3.1). It avoids imputing missing months.
+
+### Can trend and autocorrelation be told apart?
+
+A wiggly trend and strongly autocorrelated noise can look alike: both produce runs of values above or below the overall mean. Simpson (2018, §4.5) shows that a model with both may be unable to separate them when sampling is sparse relative to how fast the mean changes. They can be separated when they act on different time scales. In DO, the estimated correlation falls from `r round(phi, 2)` at one month to about `r round(phi^6, 2)` at six months, while the trend changes over years, and 144 monthly samples resolve both scales. The fit converged and AIC strongly favours the AR(1) term, both consistent with the two components being separable here. A record sampled quarterly or less often would warrant more caution.
+
+## Fitted curve against the raw record
 
 ```{r}
-#| label: do-gamm-fitted-vs-raw
+#| label: fig-do-fitted
+#| fig-cap: "The AR(1)-corrected GAMM's fitted values (trend plus season, back-transformed to medians) against the raw record."
 do_wq <- do_wq |> mutate(fitted = exp(predict(fit_gamm$gam, type = "response")))
 
 ggplot(do_wq, aes(year_frac)) +
   geom_point(aes(y = result), alpha = 0.4) +
   geom_line(aes(y = fitted), color = "steelblue", linewidth = 1) +
-  labs(title = "Dissolved Oxygen — AR(1)-corrected GAMM fit vs. raw record",
+  labs(title = "Dissolved Oxygen, AR(1)-corrected GAMM fit vs. raw record",
        y = "DO (mg/L)", x = "Year") +
   nlt_theme
 ```
 
-The fitted curve tracks the seasonal saw-tooth closely — that's `s(month)` doing its job — while riding a slight downward drift across the record, `s(year_frac)`'s contribution. This is the mean structure only: `predict()` returns the fixed smooth terms, not a one-step-ahead forecast that would additionally borrow information from a neighboring observation's residual through the fitted AR(1) correlation. That's the right comparison for this chapter's purpose (does the mean function the significance test is built on describe the data), as distinct from a forecasting fit, which is out of scope per this site's premise.
+The fitted curve in @fig-do-fitted follows the seasonal saw-tooth (`s(month)`) on a trend that holds level and then drifts down (`s(year_frac)`). This is the mean structure only. `predict()` returns the smooth terms, not a one-step-ahead forecast that would also borrow from the previous month's residual through $\phi$. That suits this chapter's question, whether the mean function the test is built on describes the data.
 
-## The trend, with seasonality removed
+The points wander off the curve in runs of several months, most visibly between about years 3 and 6. This is the AR(1) noise, not a change in the trend: with $\hat\phi \approx$ `r round(phi, 2)`, a high or low month tends to be followed by another. The spread also looks larger in mg/L where DO is higher, because the noise is multiplicative on the raw scale.
 
-A single slope-per-year number is a summary; seeing the trend itself is a better check on it. `predict(..., type = "terms")` isolates `s(year_frac)`'s contribution on its own, separate from `s(month)`, which is the "trend component" a classical decomposition (e.g. STL) would plot — recovered here as a term of the fitted GAMM rather than by a separate decomposition step.
+## The trend and where it changes: naive and corrected fits
+
+The GAM chapter reported its trend in two parts: the fitted level with a simultaneous band, and the slope of the trend with a simultaneous interval, used to mark where the record is rising, falling or flat (Simpson, 2018, §4.3–4.4; see [Where the record is rising, falling, or flat](gam.qmd#where-the-record-is-rising-falling-or-flat)). The same two parts are computed here for both DO fits, side by side, to show what ignoring the autocorrelation does to the answer.
+
+The level comes from `predict(..., type = "terms")`, which separates `s(year_frac)`'s contribution from `s(month)`'s. Subtracting each model's fitted seasonal term from each observation gives a **deseasonalized** value, the reading with the month's typical swing taken out, so the points can be read against the trend in mg/L. As in the GAM chapter, the bands are built from the posterior covariance matrix of the coefficients, which `gamm()` returns for its smooth terms as `gam()` does (`mgcv` documentation, `?gamm`). The band includes the intercept, so with the month term left out the level is the median DO at an average point in the seasonal cycle. The slope and its simultaneous interval come from `gratia::derivatives()` (Simpson, 2024).
 
 ```{r}
-#| label: do-gamm-trend-plot
-# 200-point grid spanning the record, for a smooth trend curve
-# month: placeholder value, as in the rate chunk above — type = "terms" ignores it
+#| label: do-trend-calc
+# 200-point grid across the record; month is a placeholder that the zeroed columns below ignore
 trend_grid <- data.frame(
   year_frac = seq(min(do_wq$year_frac), max(do_wq$year_frac), length.out = 200),
   month = 6
 )
-trend_term <- predict(fit_gamm$gam, newdata = trend_grid, type = "terms",
-                       terms = "s(year_frac)", se.fit = TRUE)
-# GAM smooth terms are centered at zero by construction, so the intercept is added
-# back in to plot the trend on the response's actual scale rather than as a deviation from it
-intercept <- coef(fit_gamm$gam)[["(Intercept)"]]
-trend_grid <- trend_grid |>
-  mutate(
-    fit   = intercept + trend_term$fit[, "s(year_frac)"],
-    lower = fit - 1.96 * trend_term$se.fit[, "s(year_frac)"],
-    upper = fit + 1.96 * trend_term$se.fit[, "s(year_frac)"]
-  )
+model_labels <- c("Naive GAM (independent residuals)", "GAMM with AR(1) residuals")
 
-ggplot(trend_grid, aes(year_frac, exp(fit))) +
-  geom_ribbon(aes(ymin = exp(lower), ymax = exp(upper)), alpha = 0.2) +
-  geom_line(linewidth = 1) +
-  labs(title = "Dissolved Oxygen — trend component, seasonality removed",
-       subtitle = "s(year_frac) term from the AR(1)-corrected GAMM, 95% CI",
-       y = "DO (mg/L)", x = "Year") +
-  nlt_theme
+# trend level in mg/L with a 95% simultaneous band (Simpson, 2018, Appendix 1)
+level_band <- function(model, label) {
+  Xp <- predict(model, newdata = trend_grid, type = "lpmatrix")
+  # keep the intercept and s(year_frac) columns, zero out s(month)
+  Xp[, !grepl("^\\(Intercept\\)|^s\\(year_frac\\)", colnames(Xp))] <- 0
+  V <- vcov(model)                                   # posterior covariance of the coefficients
+  fit_log <- as.vector(Xp %*% coef(model))
+  se <- sqrt(rowSums((Xp %*% V) * Xp))
+  set.seed(1)
+  b_dev <- mgcv::rmvn(10000, mu = rep(0, ncol(Xp)), V = V)
+  crit <- unname(quantile(apply(abs((Xp %*% t(b_dev)) / se), 2, max), 0.95))
+  data.frame(model = label, year_frac = trend_grid$year_frac, crit = crit,
+             fit = exp(fit_log), lower = exp(fit_log - crit * se), upper = exp(fit_log + crit * se))
+}
+
+# slope of the trend with a 95% simultaneous interval, as in the GAM chapter
+slope_band <- function(model, label) {
+  derivatives(model, select = "s(year_frac)", data = trend_grid,
+              type = "central", interval = "simultaneous", n_sim = 10000, seed = 1) |>
+    transmute(model = label, year_frac,
+              pct = (exp(.derivative) - 1) * 100,       # % change per year in median DO
+              pct_lower = (exp(.lower_ci) - 1) * 100,
+              pct_upper = (exp(.upper_ci) - 1) * 100,
+              trend = case_when(.lower_ci > 0 ~ "rising",
+                                .upper_ci < 0 ~ "falling",
+                                TRUE ~ "flat"))
+}
+
+# deseasonalized observations: log(result) minus each model's fitted s(month) contribution
+deseason <- bind_rows(
+  do_wq |> mutate(model = model_labels[1],
+                  value = exp(log(result) - predict(fit_gam, type = "terms")[, "s(month)"])),
+  do_wq |> mutate(model = model_labels[2],
+                  value = exp(log(result) - predict(fit_gamm$gam, type = "terms")[, "s(month)"]))
+)
+
+do_trend <- bind_rows(
+  left_join(level_band(fit_gam, model_labels[1]), slope_band(fit_gam, model_labels[1]),
+            by = c("model", "year_frac")),
+  left_join(level_band(fit_gamm$gam, model_labels[2]), slope_band(fit_gamm$gam, model_labels[2]),
+            by = c("model", "year_frac"))
+) |>
+  mutate(model = factor(model, levels = model_labels))  # naive column first
+deseason <- deseason |> mutate(model = factor(model, levels = model_labels))
+
+# each stretch of significant change, with its start and end year
+stretches <- do_trend |>
+  group_by(model) |>
+  mutate(run = cumsum(trend != lag(trend, default = first(trend)))) |>
+  group_by(model, run, trend) |>
+  summarise(from = round(min(year_frac), 1), to = round(max(year_frac), 1), .groups = "drop") |>
+  filter(trend != "flat") |>
+  select(-run)
+stretches
 ```
-
-The band widens gradually toward both ends of the record, as fitted-curve uncertainty usually does away from the bulk of the data, but never crosses back to flat or rising — consistent with the significant, monotonic decline reported above, and a visual check on the `edf = 1.00` finding: the line drawn here is genuinely straight, the curvature penalized out entirely rather than merely averaging out to a negative slope.
-
-### A quick cross-check against `stl()`
-
-R's equivalent to `statsmodels`' `STL` is `stats::stl()` (base `stats::decompose()` is the older, less flexible version), which splits a regularly-spaced `ts` object into trend, seasonal, and remainder components using Loess rather than a penalized regression spline. It's worth a quick look here as a sanity check, but it isn't a substitute for the GAMM fit above:
-
-- **Descriptive, not inferential.** `stl()` returns a trend curve with no standard error and no significance test attached, so it can't answer this chapter's actual question — whether the decline is distinguishable from noise.
-- **Needs a strictly regular `ts` object** — one evenly-spaced value per period, no gaps. That's a real constraint for water-quality monitoring records, which often have missed samples or irregular visit intervals.
-
-`do_wq` happens to be a complete, evenly-spaced monthly series (144 rows, 12 per year, no gaps), so `stl()` applies cleanly here without any imputation. A record with missing months would need to be filled in first, or handled with a regression-based smooth like `s(year_frac)` instead, which tolerates gaps natively since it fits against the actual sampling dates rather than a fixed-frequency grid.
 
 ```{r}
-#| label: do-stl-check
-#| message: false
-do_ts <- ts(log(do_wq$result), start = c(min(do_wq$year), 1), frequency = 12)
-do_stl <- stl(do_ts, s.window = "periodic")
-plot(do_stl, main = "STL decomposition, log(DO) — cross-check only")
+#| label: fig-do-trend
+#| fig-width: 10
+#| fig-height: 7
+#| fig-cap: "The naive GAM (left) and the AR(1)-corrected GAMM (right). Top: the fitted median DO with the seasonal cycle removed, its 95% simultaneous band, and the deseasonalized observations; the line is coloured where the trend is significantly rising (orange) or falling (blue). Bottom: the rate of change, in percent per year, with its 95% simultaneous interval. The naive fit's intervals assume independent residuals, which do not hold here."
+trend_cols <- c(rising = "#D55E00", falling = "#0072B2", flat = "grey40")
+
+p_level <- ggplot(do_trend, aes(year_frac)) +
+  geom_point(data = deseason, aes(year_frac, value), alpha = 0.3, color = "grey40") +
+  geom_ribbon(aes(ymin = lower, ymax = upper), fill = "grey70", alpha = 0.5) +
+  geom_line(aes(y = fit, colour = trend, group = 1), linewidth = 1.1, lineend = "round") +
+  scale_colour_manual(values = trend_cols) +
+  facet_wrap(~ model) +
+  labs(x = NULL, y = "Median DO (mg/L)",
+       title = "Fitted trend, seasonality removed, with 95% simultaneous band",
+       subtitle = "Orange: significantly rising. Blue: significantly falling. Grey: no significant change.") +
+  nlt_theme +
+  theme(panel.spacing.x = unit(1.5, "lines"))
+
+p_rate <- ggplot(do_trend, aes(year_frac)) +
+  geom_ribbon(aes(ymin = pct_lower, ymax = pct_upper), fill = "grey70", alpha = 0.5) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_line(aes(y = pct, colour = trend, group = 1), linewidth = 1.1, lineend = "round") +
+  scale_colour_manual(values = trend_cols) +
+  facet_wrap(~ model) +
+  labs(x = "Year", y = "Change in median DO (% per year)",
+       title = "Rate of change with 95% simultaneous interval") +
+  nlt_theme +
+  theme(panel.spacing.x = unit(1.5, "lines"))
+
+p_level / p_rate
 ```
 
-The STL trend-cycle component traces the same steady decline `s(year_frac)` recovers above — reassuring, but it comes with no p-value. `stl()` can show that a decline exists; it can't say whether it's distinguishable from the correlated noise the ACF check flagged earlier in this chapter. Closing that gap is what the GAMM's F-test is for.
+```{r}
+#| label: do-stretch-text
+#| include: false
+# values for the text below
+naive_st <- stretches |> filter(model == model_labels[1])
+gamm_st <- stretches |> filter(model == model_labels[2])
+naive_d <- do_trend |> filter(model == model_labels[1])
+gamm_d <- do_trend |> filter(model == model_labels[2])
+fmt_st <- function(st) paste(ifelse(st$from == st$to, sprintf("%s near %.1f", st$trend, st$from),
+                                    sprintf("%s %.1f–%.1f", st$trend, st$from, st$to)), collapse = "; ")
+```
 
-It's also worth noticing that STL's trend-cycle line above wanders, unlike the GAMM's straight `edf = 1.00` trend — the same kind of local wiggle the naive GAM's uncorrected fit found. That difference comes from what each method is built to do. `stl()`'s Loess window has no significance test to fail and no correlation structure to hand noise off to, so any short-run wiggle in the data, real or not, shows up in its trend-cycle line by construction. The GAMM's smoothing penalty, once the AR(1) term is given that same noise to explain, has somewhere else to put it instead — which is why the wiggle a purely descriptive tool always shows evaporates once a model tests whether it's distinguishable from noise.
+The two fits tell different stories (@fig-do-trend). The deseasonalized points are the same data in both columns. They run above or below the trend for several months at a time, which is what $\hat\phi \approx$ `r round(phi, 2)` describes. The naive GAM follows those runs, and read at face value its slope interval finds `r nrow(naive_st)` separate stretches of significant change (`r fmt_st(naive_st)`, in years), with no significant change in between. One of them is a rise that only just clears zero, at the peak of a bend the GAMM does not find. Its rate swings between about `r round(min(naive_d$pct), 1)`% and `r round(max(naive_d$pct), 1)`% per year.
+
+The GAMM assigns the runs to the correlation term and keeps a smoother trend. Its fitted median eases from about `r round(gamm_d$fit[1], 1)` mg/L at the start to `r round(approx(gamm_d$year_frac, gamm_d$fit, gamm_st$from[1])$y, 1)` mg/L at year `r gamm_st$from[1]`, a change its slope interval does not find significant. The decline is significant from about year `r gamm_st$from[1]` to `r sprintf("%.1f", gamm_st$to[1])`, at up to about `r sprintf("%.1f", -min(gamm_d$pct))`% per year. In the last year of the record the fitted decline continues, to about `r round(tail(gamm_d$fit, 1), 1)` mg/L, but the interval widens, as it does at the end of any record where there are no later data, and includes zero (`r sprintf("%.1f", tail(gamm_d$pct_lower, 1))` to `r sprintf("%.1f", tail(gamm_d$pct_upper, 1))`% per year at the last date).
+This is the failure Simpson (2018, §4.5) describes. Treating correlated residuals as independent let the penalty fit them as bends, and the slope intervals then marked those bends as periods of change. A report built on the naive fit would describe a record that declined in short, separate episodes, misstating when and how DO changed, not only how certain the change is; the data support a stable record followed by a sustained decline.
+
+## A quick cross-check against `stl()`
+
+`stats::stl()` splits a regularly spaced `ts` object into trend, seasonal and remainder components using LOESS rather than a penalized regression spline. It is a useful sanity check, but not a substitute for the GAMM:
+
+- **Descriptive, not inferential.** `stl()` returns a trend curve with no standard error and no significance test, so it cannot say whether, or when, the decline is distinguishable from noise. LOESS-based smoothers of this kind are flexible but largely descriptive (Esterby, 1996).
+- **Needs a strictly regular `ts` object**: one value per period, no gaps. `do_wq` is a complete monthly series, so `stl()` applies here without imputation; a GAMM with `corCAR1()` fits against the actual sampling dates and needs no regular grid.
+
+```{r}
+#| label: fig-do-stl
+#| message: false
+#| fig-cap: "STL decomposition of log(DO) into seasonal, trend and remainder components, as a descriptive cross-check."
+do_ts <- ts(log(do_wq$result), start = c(min(do_wq$year), 1), frequency = 12)
+do_stl <- stl(do_ts, s.window = "periodic")
+plot(do_stl, main = "STL decomposition, log(DO), cross-check only")
+```
+
+STL's trend component in @fig-do-stl shows the same later decline, with no p-value attached. It also wanders, like the naive GAM's trend: its LOESS window has no correlation structure to assign short-run noise to, so runs in the data, real or not, show up in its trend line. Morton and Henderson (2008, §3) note that a LOESS window would need to widen as positive autocorrelation increases, while a penalized smooth can keep the same penalty whatever the correlation structure.
 
 ## Model diagnostics
+
+The target for the diagnostics is **white noise**: a series with zero mean, constant variance and no autocorrelation (DSCI 574). In forecasting, residuals that resemble white noise indicate that the model has extracted the useful information from the series. Here they indicate that the noise assumptions behind the trend's intervals hold: whatever structure is left after the smooths and the AR(1) term is not systematic. Breusch-Pagan checks the constant-variance part and the ACF and Ljung-Box test check the no-autocorrelation part; Shapiro-Wilk adds a normality check, which the Gaussian likelihood assumes.
+
+### Which residuals to check: normalized residuals
+
+The GAMM's ordinary residuals, each reading minus its fitted value, are not the right thing to check. The model says they are correlated, with correlation $\hat\phi$ between neighbouring months, so they would fail an independence check by design.
+
+What the model does assume is independent is the new noise $u_i$ in @eq-ar1, the part of each month's residual that the previous month's does not predict. The **normalized residuals** recover it. For an AR(1) structure, each one is the month's residual minus $\hat\phi$ times the previous month's, rescaled to unit variance: $(\varepsilon_i - \hat\phi\,\varepsilon_{i-1})$ divided by its standard deviation. In general, `nlme` removes the fitted correlation matrix $\mathbf{R}$ from the residuals (`nlme` documentation, `?residuals.lme`), and `resid(fit_gamm$lme, type = "normalized")` returns them.
+
+If AR(1) describes the dependence, the normalized residuals should be white noise, so they are what every check in this section uses. The trend-only and naive GAMs have no correlation term to remove; their ordinary residuals are already what those models assume to be independent, and they appear below only for comparison.
 
 ### Homoscedasticity and normality
 
 ```{r}
 #| label: do-gamm-resid
-# resid(..., type = "normalized"): Pearson residuals divided through by the fitted AR(1)
-# structure, so they should look like independent noise if the correction worked
+# resid(..., type = "normalized"): residuals with the fitted AR(1) correlation removed,
+# which should look like independent noise if the correction worked
 resid_norm <- as.numeric(resid(fit_gamm$lme, type = "normalized"))
-shapiro.test(resid_norm)
-bptest(lm(resid_norm ~ fitted(fit_gamm$gam)))
+sw_do <- shapiro.test(resid_norm)
+bp_do <- bptest(lm(resid_norm ~ fitted(fit_gamm$gam)))
+sw_do
+bp_do
 ```
 
-Both tests fail to reject their null on the normalized residuals: Shapiro-Wilk ($p = 0.619$) finds no evidence of non-normality, and Breusch-Pagan ($p = 0.363$) finds no evidence of heteroscedasticity.
+Neither test rejects its null on the normalized residuals at the 5% level: Shapiro-Wilk ($p =$ `r round(sw_do$p.value, 2)`) finds no evidence of non-normality, and Breusch-Pagan ($p =$ `r round(bp_do$p.value, 2)`) none of heteroscedasticity.
 
 ### Independence
 
 ```{r}
-#| label: do-gamm-acf-corrected
-acf(resid_norm, main = "Residual autocorrelation, AR(1)-corrected")
+#| label: fig-do-acf-compare
+#| warning: false
+#| fig-width: 9
+#| fig-height: 4.5
+#| fig-cap: "Residual autocorrelation at lags 1 to 24 for the three DO fits on one scale: the trend-only GAM, the naive GAM (trend and season, independent residuals) and the AR(1)-corrected GAMM (normalized residuals). Dashed lines are approximate 95% bounds for independent residuals."
+max_lag <- 24
+acf_tidy <- function(x, model) {
+  a <- acf(x, lag.max = max_lag, plot = FALSE)
+  data.frame(lag = a$lag[-1], acf = a$acf[-1], model = model)
+}
+acf_corr <- acf(resid_norm, lag.max = max_lag, plot = FALSE)
+lb_do <- Box.test(resid_norm, lag = 12, type = "Ljung-Box")
+lb_do
+
+acf_levels <- c("Trend-only GAM", "Naive GAM", "GAMM, normalized residuals")
+acf_all <- bind_rows(
+  acf_tidy(resid(fit_single), acf_levels[1]),
+  acf_tidy(resid(fit_gam), acf_levels[2]),
+  acf_tidy(resid_norm, acf_levels[3])
+) |>
+  mutate(model = factor(model, levels = acf_levels))
+ci_bound <- qnorm(0.975) / sqrt(nrow(do_wq))
+
+ggplot(acf_all, aes(lag, acf, colour = model)) +
+  geom_hline(yintercept = 0, colour = "grey30", linewidth = 0.3) +
+  geom_hline(yintercept = c(-ci_bound, ci_bound), linetype = "dashed", colour = "grey50") +
+  geom_line(linewidth = 0.6) +
+  geom_point(size = 1.6) +
+  scale_colour_manual(values = c("grey65", project_palette[4], project_palette[2]), name = NULL) +
+  scale_x_continuous(breaks = seq(0, max_lag, by = 6)) +
+  labs(x = "Lag (months)", y = "Autocorrelation",
+       title = "Residual autocorrelation, three DO fits") +
+  nlt_theme +
+  theme(legend.position = "bottom")
 ```
 
-The lag-1 autocorrelation that was above 0.5 in the naive fit is now close to zero: the correction did what it was supposed to.
+@fig-do-acf-compare puts the three fits' residual ACFs on one scale:
+
+- **Trend-only GAM.** The annual oscillation of @fig-do-acf-single, with lag 1 at `r round(acf_single$acf[2], 2)`, most of it from the unmodelled seasonal cycle.
+- **Naive GAM.** Positive correlation at short lags, the month-to-month carry-over. Its lag-1 value, `r round(acf_naive$acf[2], 2)`, is below the GAMM's estimate $\hat\phi =$ `r round(phi, 2)`. The GAMM estimates the correlation together with a stiffer trend (edf `r round(summary(fit_gamm$gam)$s.table["s(year_frac)", "edf"], 2)` against `r round(summary(fit_gam)$s.table["s(year_frac)", "edf"], 2)`), so it assigns more of the runs to the noise; the naive trend had absorbed part of them.
+- **GAMM, normalized residuals.** With the fitted correlation removed, lag-1 autocorrelation is `r round(acf_corr$acf[2], 2)`. The number of lags outside the 95% bounds, `r sum(abs(acf_corr$acf[-1]) > ci_bound)` of `r max_lag`, is about what independent residuals would produce by chance (roughly 1 in 20), and the Ljung-Box test over the first twelve lags finds no evidence of remaining dependence ($p =$ `r round(lb_do$p.value, 2)`).
+
+The normalized residuals are consistent with white noise, so AR(1) was enough, and the intervals above can be read as they stand.
 
 ## Interpretation
 
-The general lesson carries beyond this one series: fitting a GAM to a regularly sampled monitoring record and reading its smooth-term significance at face value skips a step — checking `acf(resid(fit))` first, and reaching for `gamm()` with a correlation structure when it shows real autocorrelation, the way it did here.
+**What the record did.** Median DO, with the seasonal cycle removed, showed no significant change until about year `r sprintf("%.1f", gamm_st$from[1])` (fitted median about `r round(gamm_d$fit[1], 1)` mg/L at the start), then declined significantly from about year `r gamm_st$from[1]` to `r sprintf("%.1f", gamm_st$to[1])`, at up to about `r sprintf("%.1f", -min(gamm_d$pct))`% per year. The fitted median reaches about `r round(tail(gamm_d$fit, 1), 1)` mg/L at the end of the record; the last year's decline is not significant on its own, because the interval widens where there are no later data. The start of the decline is approximate: a slope that grows gradually clears zero gradually.
 
-Stepping back, this is what getting the model's structure right buys: log(DO) has three things riding on top of each other in the raw series — a long-term trend, an annual seasonal cycle, and correlated residual noise — and the GAMM is what separates them, rather than leaving them tangled together the way the raw plot at the top of this chapter does. Separating them, rather than eyeballing the record or decomposing it descriptively, is what turns a shape into a defensible claim.
+**A check against the known answer.** The DO record is synthetic, generated with a stable level for about five years that then bends smoothly into a decline of about 3% per year, plus AR(1) noise with $\phi = 0.6$ (see `R/generate_synthetic_data.R`). The GAMM recovers that shape and a $\hat\phi$ of `r round(phi, 2)`; its slope interval marks the decline as significant only from about year `r gamm_st$from[1]`, later than the generated onset at year 5.5. The generated slope is small for the first few years after onset, and the GAMM's interval, which accounts for the correlation, is too wide to exclude zero there. The naive GAM's separate episodes and its marginal rise have no counterpart in how the data were generated.
+
+**The general lesson.** Reading a GAM's significance test, bands or slope intervals for a regularly sampled monitoring record should come after checking `acf(resid(fit))`. When the ACF shows real autocorrelation, refitting with `gamm()` and a correlation structure is the step that makes those results defensible. Single-slope tests such as OLS and Mann-Kendall share the independence assumption, so they need the same check; for the seasonal Kendall test, Hirsch and Slack (1984) give a version modified for serial correlation (Esterby, 1996).
+
+That completes the methods on this site. [Linear vs. Nonlinear Comparison](linear-vs-nonlinear-comparison.qmd), next, opens the closing section on choosing a model, starting with the narrowest version of the question: whether a series needs any of this added flexibility at all.
 
 ## Extending this analysis
 
-`corAR1()` was the right correction here because the ACF plot showed a single lag-1 dependency decaying geometrically. A residual ACF with a different shape on another record — a spike at the seasonal lag instead of lag 1, or a decay `corAR1()`'s single parameter can't fit — would call for `nlme::lme()`'s richer `corARMA()` family instead.
+`corAR1()` suited this record because the ACF decayed from lag 1 and the corrected residuals passed the independence checks, and `corCAR1()` extends it to irregular sampling. A residual ACF with a different shape, such as a spike at the seasonal lag, or a decay a single $\phi$ cannot fit, would call for `nlme`'s `corARMA()` family instead, compared by AIC.
 
-This also remains a single-site model. Extending it to a monitoring network of several sites is where the other sense of "mixed" flagged above would apply: a random intercept per site, layered on top of the same trend and seasonal smooths, with the AR(1) correlation — if it held at every site — sitting alongside it in the same `lme()` call rather than replacing it.
+This remains a single-site model. For a monitoring network, the more familiar use of random effects applies: a random intercept per site on top of the same trend and seasonal smooths, with the correlation structure alongside it in the same `lme()` call. That model needs one more variance component, a correlation structure that holds at every site, and a seasonal shape shared across sites. It is worth the extra work when individual records are too short to estimate their own trends and need to borrow strength from the network, or when the deliverable is a basin-wide statement. Otherwise, fitting this chapter's GAMM once per site keeps each site's test about that site, and is simpler to build and explain to a client asking about one location.
 
-That pooled model is a heavier build: one more variance component, a correlation structure that has to be justified at every site rather than one, and a shared seasonal shape that may not hold everywhere. It earns its keep when individual sites have too short a record to estimate their own trend confidently and need to borrow strength from the rest of the network, or when the deliverable is a basin-wide statement rather than a single-site one. Otherwise, fitting this chapter's single-site GAMM once per site keeps each site's significance test about that site alone, and is simpler to build and explain to a client asking about their one location.
+Two other tools suit cases outside this chapter's scope. For long records or many series, `mgcv::bam()` fits an AR(1) error quickly through its `rho` argument, but $\phi$ has to be supplied rather than estimated, for example from a first fit's residual ACF. When the deliverable is a forecast, the response is a count, or several series share dynamics, `mvgam` fits a Bayesian state-space model in Stan: a smooth or Gaussian-process trend plus a separate latent autoregressive process, with priors that can keep the trend from absorbing the short-term noise (Clark and Wells, 2023; Clark, 2023). For a single Gaussian record and inference on the observed period, as here, `gamm()` answers the question with less machinery.
 
 ## References
 
-- UBC Master of Data Science, *DSCI 561: Regression I*.
 - UBC Master of Data Science, *DSCI 562: Regression II*. [Lecture 4: Linear Mixed-Effects Models](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture4_linear_mixed_effects_models.html).
+- UBC Master of Data Science, *DSCI 574: Spatial and Temporal Models*. [Course outline, 2018-19](https://github.com/UBC-MDS/DSCI_574_spat-temp-mod).
+- Clark, N.J. (2023). Temporal autocorrelation in GAMs and the mvgam package. Blog post, 16 July 2023. <https://ecogambler.netlify.app/blog/autocorrelated-gams/>.
+- Clark, N.J., and Wells, K. (2023). Dynamic generalised additive models (DGAMs) for forecasting discrete ecological time series. *Methods in Ecology and Evolution*, 14(3), 771–784. <https://doi.org/10.1111/2041-210X.13974>.
+- Esterby, S.R. (1996). Review of methods for the detection and estimation of trends with emphasis on water quality applications. *Hydrological Processes*, 10(2), 127–149.
+- Faraway, J.J. (2005). *Extending the Linear Model with R: Generalized Linear, Mixed Effects and Nonparametric Regression Models*. CRC Press.
+- Hirsch, R.M., and Slack, J.R. (1984). A nonparametric trend test for seasonal data with serial dependence. *Water Resources Research*, 20(6), 727–732.
+- Morton, R., and Henderson, B.L. (2008). Estimation of nonlinear trends in water quality: An improved approach using generalized additive models. *Water Resources Research*, 44, W07420. <https://doi.org/10.1029/2007WR006191>.
+- Pinheiro, J.C., and Bates, D.M. (2000). *Mixed-Effects Models in S and S-PLUS*. Springer, New York.
+- Pinheiro, J.C., Bates, D.M., and R Core Team. *nlme: Linear and Nonlinear Mixed Effects Models*. R package version 3.1-169, help page `?residuals.lme`. <https://CRAN.R-project.org/package=nlme>.
+- Simpson, G.L. (2018). Modelling palaeoecological time series using generalised additive models. *Frontiers in Ecology and Evolution*, 6, 149. <https://doi.org/10.3389/fevo.2018.00149>.
+- Simpson, G.L. (2024). gratia: An R package for exploring generalized additive models. *Journal of Open Source Software*, 9(104), 6962. <https://doi.org/10.21105/joss.06962>. Version 0.11.2 used.
 - Wood, S.N. (2017). *Generalized Additive Models: An Introduction with R*, Second Edition. CRC Press.
+- Wood, S.N. *mgcv: Mixed GAM Computation Vehicle with Automatic Smoothness Estimation*. R package version 1.9.4, help pages `?gamm`, `?identifiability`, `?k.check`, `?choose.k`, `?te` and `?smooth.construct.cc.smooth.spec`. <https://CRAN.R-project.org/package=mgcv>.

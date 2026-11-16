@@ -10,6 +10,8 @@ library(dplyr)
 library(ggplot2)
 library(mgcv)
 library(lmtest)
+library(gratia)
+library(patchwork)
 source("R/utils.R")
 non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_types = FALSE)
 cu_wq <- non_linear_wq |> filter(analyte == "Total Copper")
@@ -19,85 +21,208 @@ cu_wq <- non_linear_wq |> filter(analyte == "Total Copper")
 
 Total Copper has a shape with no apparent periodic structure and no small set of knots an analyst would confidently place by eye, which rules out the methods used so far: [piecewise regression](piecewise-regression.qmd) assumes flat-then-sloped segments and [changepoint detection](changepoint-detection.qmd) assumes a single level jump.
 
-In the next chapter, [GAMM](gamm.qmd) (on Dissolved Oxygen), we'll build for a repeating annual shape with a correlated-noise problem, which is not relevant here.
+This is the case a **generalized additive model (GAM)** is built for: a curve shape too irregular to describe with a handful of hand-picked segments or knots in a linear combination. The record still needs an answer to a concrete question, whether this concentration is currently rising, falling or holding, and a GAM turns that into a testable claim rather than a read off a noisy plot.
 
-It also doesn't offer the move [Post-Diagnosis: Committing to a Parametric Form](parametric-commitment.qmd) makes for Total Phosphorus — there's no recognizable family (logistic, exponential, or otherwise) this shape resolves into, so there's no simpler curve to commit to afterward.
+### Where a GAM fits among trend methods
 
-This is the case a **generalized additive model (GAM)** is built for: a curve shape too irregular to describe with a handful of hand-picked segments or knots in a linear combination, and too irregular to hand off to a parametric family either. The record still needs an answer to a concrete question — is this concentration currently rising, falling, or holding — and a GAM is what turns that into a testable claim rather than a read off a noisy plot.
+Simpson (2018, §1) reviews how trends have been estimated in environmental time series and finds the common methods limited for a record like this one. The most common, LOESS, was developed to smooth scatterplots. The analyst chooses the window width, the polynomial degree and the weighting, and in exploratory use the window can be adjusted until the curve looks right by eye. That freedom suits a first look at the data, which is how the [LOESS chapter](loess-smoothing.qmd) and the raw-series plot below use it. Simpson's concern is what happens next: once the LOESS curve is used to test whether, or where, a trend exists, the answer depends on settings the analyst picked. The other common methods test a narrower question. A straight line fit by OLS, tested with its t statistic, and Pearson's correlation both look for a linear trend only. Rank correlations such as Kendall's τ, the statistic behind the Mann-Kendall test, allow a nonlinear trend but only a monotonic one, and the correlation on its own gives no size for the trend. The significance tests for all of these assume independent observations, which time-ordered monitoring data often are not; [GAMM](gamm.qmd) takes up that problem.
+
+A GAM keeps what LOESS does well: it estimates a smooth, nonlinear trend from the data and handles samples that are unevenly spaced in time. It differs in how the smoothness is chosen and in what comes out. The amount of smoothing is estimated from the data through a penalty (described below) rather than set by the analyst, and the result is a regression model with coefficients and a covariance matrix, so it supports formal inference: a test of whether the trend departs from flat, and intervals on the curve and on its slope (Simpson, 2018, §1).
 
 ### Why a GAM still counts as a linear model
 
-[The Regression Framework](regression-framework.qmd) makes the point that "linear" describes the parameters, not the shape. Three models build on each other to show what that means in practice:
+[The Regression Framework](regression-framework.qmd) makes the point that "linear" describes the parameters, not the shape (DSCI 561). Three models build on each other to show what that means in practice:
 
 1. **OLS** is a sum of two fixed pieces of $x$, each multiplied by its own coefficient and added in:
 
     $$y = \underbrace{\beta_0}_{\text{intercept basis: } 1} + \underbrace{\beta_1 x}_{\text{slope basis: } x}.$$
 
-    Each of those pieces — $1$, $x$ — is a **basis function**: a fixed function of $x$ that gets multiplied by a coefficient and added into the model. An OLS fit is already a sum of two of them.
+    Each of those pieces, $1$ and $x$, is a **basis function** (Bishop 2006; DSCI 573): a fixed function of $x$ that gets multiplied by a coefficient and added into the model. An OLS fit is already a sum of two of them.
 
 2. **Piecewise regression** adds a third, hand-picked basis function: a hinge that bends at a single point $c$ the analyst chose:
 
     $$y = \underbrace{\beta_0}_{\text{intercept basis}} + \underbrace{\beta_1 x}_{\text{slope basis}} + \underbrace{\beta_2 (x - c)_+}_{\text{hinge basis}}.$$
 
-    It's still just a coefficient times a fixed function of $x$, added in — the pattern [Transformations](transformations.qmd) names **feature-engineering the regressor**: handing `lm()` one new column instead of reaching for a response transform.
+    It is still a coefficient times a fixed function of $x$, the pattern [Transformations](transformations.qmd) calls **feature-engineering the regressor**: handing `lm()` one new column instead of transforming the response.
+3. **A GAM** is the same move again, scaled up and automated. Instead of one or two hand-picked basis functions like the hinge term, it uses many small, fixed, curved ones, with a fitted penalty, not the analyst, deciding how much of that flexibility survives. Formally, a GAM is a generalized linear model whose linear predictor includes a sum of smooth functions of the covariates, each represented by a basis expansion of this kind (Wood, 2017, §4.1–4.2.1; Clark, 2022).
 
-3. **A GAM** is the same move again, scaled up and automated. Instead of one or two hand-picked basis functions like the hinge term, it uses many small, fixed, curved ones, with a fitted penalty — not the analyst — deciding how much of that flexibility survives.
+
+### Kinds of basis
+
+The goal of a smooth term is to estimate a curve $f(x)$ whose shape is not known in advance. A regression can only estimate coefficients, so the curve has to be written as a weighted sum of known functions, $f(x) = \sum_j \beta_j b_j(x)$, and the data then pick the weights. The set of functions $b_j(x)$ is the basis. Choosing it is choosing which shapes the fit is able to take and how a change in one part of the record carries over to the rest. A basis that suits the curve lets a modest number of coefficients follow it closely. One that does not leaves a fit that misses real features, adds features the data do not support, or both, however the coefficients are estimated (Wood, 2017, §4.2.1).
+
+Any set of fixed functions of $x$ can serve as a basis, and the choice decides which shapes the sum $\sum_j \beta_j b_j(x)$ can trace out. The individual basis functions can be nonlinear in $x$; the model stays linear because each coefficient enters only as a multiplier on its basis function (Wood, 2017, §4.2.1; Bishop, 2006, §3.1).
+
+The main property that separates one basis from another is reach: how much of the record a single basis function affects. Bishop (2006, §3.1) calls polynomial basis functions **global**, "so that changes in one region of input space affect all other regions." Wood (2017, §4.2.1) makes the same point through Taylor's theorem: a polynomial is a good description near one chosen point and a problematic one over a whole domain. At the other end, a basis function that is exactly zero outside a finite interval has **compact support** (Wood, 2017, §4.2.1), so its coefficient only moves the fit inside that interval. Between the two are basis functions that are nonzero everywhere but negligible away from their centre. Five common choices:
+
+| Basis | Basis functions | Reach of one basis function |
+|---|---|---|
+| Polynomial | $1, x, x^2, \dots, x^p$ | Global. Every term spans the whole record, so fitting one stretch moves the curve everywhere, and a high-order fit tends to oscillate between data points (Wood, 2017, §4.2.1; Bishop, 2006, §3.1) |
+| Sigmoid | Smooth steps $\sigma\left((x - c_j)/s\right)$, with $\sigma(a) = 1/(1 + e^{-a})$ | One-sided. Each is near 0 below $c_j$ and near 1 above it, so its coefficient shifts the whole curve on one side of $c_j$ (Bishop, 2006, §3.1) |
+| Gaussian radial | Bumps $\exp\left(-(x - c_j)^2 / 2\sigma^2\right)$, centred at points $c_j$ | Mostly local. Never exactly zero, but negligible a few widths from $c_j$; the width $\sigma$ is a tuning choice (Bishop, 2006, §3.1). |
+| Piecewise linear | "Tent" functions, each nonzero only between neighbouring knots | Local, with compact support, but the fitted curve has a kink at every knot (Wood, 2017, §4.2.1) |
+| Spline | Low-order polynomial pieces joined smoothly at knots | The curve is always built from local pieces. Whether each basis function also has compact support depends on the spline type: yes for the B-spline types (`bs`, `ps`), no for `cr` or `tp` (Wood, 2017, §5.1–5.3; thin plate splines are covered in §5.5) |
+
+Bishop (2006, §3.1) notes that the polynomial's global reach "can be resolved by dividing the input space up into regions and fit a different polynomial in each region, leading to spline functions," which is the route the next section follows. A spline still uses polynomials, but each one covers only the stretch between two neighbouring knots; a polynomial is global only when one formula spans the whole record. A **cubic spline** is a chain of cubic pieces that meet at the knots with matching value, slope and curvature, so the curve has no jumps or kinks (Wood, 2017, §5.1). Wood (2017, §4.2.1) introduces smoothing with the polynomial and piecewise linear bases because they are simple, then notes that spline bases improve on the piecewise linear one by keeping a few derivatives continuous across the knots.
+
+The same set of cubic spline curves can be written with many different sets of basis functions, and "the link to the piecewise cubic characterization is not always transparent" (Wood, 2017, §5.1). It is similar to giving one location in two different coordinate systems. Whether a fit stays local is a property of the curves the basis can produce, not of how any single basis function looks. The two spline types used most in `mgcv` show the difference:
+
+- `cr`, a **cubic regression spline**. The analyst sets $k$ knots, which `mgcv` spreads through the observed $x$ values by default, and each coefficient is the height of the curve at one knot. The piecewise cubic construction is visible in the basis: each basis function peaks at its own knot and is small, though not zero, elsewhere (Wood, 2017, §5.3).
+- `tp`, a **thin plate regression spline**, the default in `s()`. No knots are chosen. `mgcv` starts from a smoother with a knot at every data point and keeps the $k$ basis functions that matter most to it (Wood, 2017, §5.5). The first two are a constant and a straight line, and the rest each span the whole record, so no single basis function looks like a local piece. In one dimension the full thin plate spline is a cubic spline, so the fitted curve still behaves like one.
+
+These and the other `mgcv` spline types all sit in the last row of the table. They differ in how the basis functions are built and penalized, not in what a spline is.
+
+The terms nest. Reading the fit used later in this chapter, `gam(log(result) ~ s(year_frac, bs = "tp", k = 40))`, from the outside in:
+
+1. **Model**: `gam()`, a GLM whose linear predictor includes smooth terms.
+2. **Smooth term**: `s(year_frac)`, one unknown function $f$ of one covariate.
+3. **Basis family**: a spline, one row of the table above. `s()` uses a spline basis unless told otherwise.
+4. **Spline type**: `bs = "tp"`, one particular way of building a spline basis (`"cr"`, `"ps"` and `"cc"` are others).
+5. **Basis functions**: `k = 40` sets how many functions $b_1(x), \dots, b_k(x)$ that type supplies.
+6. **Coefficients**: one $\beta_j$ per basis function, estimated subject to the smoothing penalty.
+
+::: {.callout-note}
+## Side note: are GAM basis functions just neural network activations?
+
+In form, they are close. A hidden unit in a neural network, such as a $\tanh$ or ReLU unit, is a nonlinear function of $x$ that gets multiplied by a weight and added into the output, which is what a basis function $b_j(x)$ does in a GAM. Bishop (2006) connects the two: Chapter 3 builds regression from linear combinations of basis functions, including the polynomial, Gaussian and sigmoid bases in the table above (§3.1), and Chapter 5 introduces neural networks as the same kind of model with one change (pp. 225–227). The difference is whether the basis functions are fixed or adaptive:
+
+- **GAM (fixed basis).** The spline basis functions are built before fitting, and only their coefficients are estimated. For a given smoothing penalty, the fit is a convex penalized least-squares problem, and because the model stays linear in its coefficients, GLM-style confidence intervals and tests carry over, approximately, because the penalty is estimated from the same data (Wood, 2017, §6.12).
+- **Neural network (adaptive basis).** The number of basis functions is fixed in advance, but each one has its own inner weights, which are fitted along with the output weights, so the network learns where its basis functions sit and how steep they are. Bishop presents this as the way to handle large, high-dimensional problems where fixed bases run into the curse of dimensionality. The cost, in Bishop's words, is that the likelihood "is no longer a convex function of the model parameters", and the fitted model is harder to interpret and to attach standard intervals to.
+
+The ReLU case shows the link concretely. A ReLU unit on a single input is $\max(0, w x - b)$, which is the hinge term $(x - c)_+$ from piecewise regression, rescaled, with the knot $c = b / w$ learned rather than chosen. A one-input ReLU network is a piecewise linear fit whose knots are estimated. A GAM keeps its basis fixed and controls flexibility with a penalty instead.
+:::
+
+### From a polynomial to a GAM
+
+Clark (2022, "The case for GAMs") builds up to a GAM through a sequence of fits to one simulated curve, $f(x) = \sin(2(4x - 2)) + 2e^{-16^2(x - 0.5)^2}$, a wave with a narrow peak at $x = 0.5$. @fig-basis-progression reproduces that sequence with the same function and seed. The dashed black line is the true curve, so each panel's error can be read as the gap between it and the coloured fit. In panel 2, the 10 separately fitted pieces alternate in colour.
+
+```{r}
+#| label: fig-basis-progression
+#| fig-cap: "Three fits to the same simulated curve, after Clark (2022): (1) one global degree-15 polynomial, (2) separate cubics in 10 chunks with no join, (3) a penalized spline. The dashed black line is the true curve."
+#| echo: false
+#| fig-width: 9
+#| fig-height: 9
+# simulated curve and seed from Clark (2022), "The case for GAMs"
+set.seed(123)
+sim_truth <- function(x) sin(2 * (4 * x - 2)) + 2 * exp(-(16^2) * (x - 0.5)^2)
+sim <- tibble(x = runif(500), y = rnorm(500, sim_truth(x), 0.3))
+sim_grid <- tibble(x = seq(0, 1, length.out = 400))
+chunk_breaks <- seq(0, 1, length.out = 11)
+sim$chunk <- cut(sim$x, chunk_breaks, include.lowest = TRUE)
+sim_grid$chunk <- cut(sim_grid$x, chunk_breaks, include.lowest = TRUE)
+
+# 1. one global polynomial basis: 1, x, ..., x^15
+fit_poly <- lm(y ~ poly(x, 15), data = sim)
+# 2. a separate cubic fit inside each of 10 equal-width chunks, with no join between them
+piecewise <- sim_grid |>
+  group_by(chunk) |>
+  group_modify(\(g, key) {
+    fit <- lm(y ~ poly(x, 3, raw = TRUE), data = filter(sim, chunk == key$chunk))
+    mutate(g, fit = predict(fit, g))
+  }) |>
+  ungroup()
+# 3. a penalized spline basis, the same kind of smooth this chapter fits to copper
+fit_sim_gam <- gam(y ~ s(x, bs = "tp", k = 20), data = sim, method = "REML")
+
+# one colour per panel; panel 2 alternates two colours by chunk so the breaks between pieces show
+progression <- bind_rows(
+  mutate(sim_grid, fit = predict(fit_poly, sim_grid), panel = "1. Polynomial, degree 15", piece = "poly"),
+  mutate(piecewise, panel = "2. Piecewise cubic, 10 chunks",
+         piece = if_else(as.integer(chunk) %% 2 == 0, "chunk_even", "chunk_odd")),
+  mutate(sim_grid, fit = predict(fit_sim_gam, sim_grid), panel = "3. Penalized spline (GAM)", piece = "gam")
+) |>
+  # only panel 2 is drawn as separate pieces; panels 1 and 3 are one continuous line each
+  mutate(line_group = if_else(piece %in% c("poly", "gam"), panel, paste(panel, chunk)))
+ggplot() +
+  geom_point(data = sim, aes(x, y), alpha = 0.2, size = 0.8, colour = "grey40") +
+  geom_line(data = sim_grid, aes(x, sim_truth(x)), linetype = "dashed", linewidth = 0.5) +
+  geom_line(data = progression, aes(x, fit, group = line_group, colour = piece),
+            linewidth = 0.9) +
+  scale_colour_manual(values = c(poly = "#57717C", chunk_odd = "#8C6FA0",
+                                 chunk_even = "#C97B63", gam = "#5F97A4"), guide = "none") +
+  facet_wrap(~panel, ncol = 1) +
+  labs(x = "x", y = "y") +
+  nlt_theme
+```
+
+1. **One global polynomial.** At a glance, panels 1 and 3 look alike, and that is part of the point: with 500 observations, a degree-15 polynomial gets the broad shape right. The differences are where a global basis struggles. It cuts the narrow peak off at about 1.7 against a true height of 2.0, wobbles through the trough near $x = 0.3$, and bends away from the true curve at the right end, where it is off by about 0.46. Fitting the peak more closely would take more terms, and each extra term changes the fit across the whole range, not just near the peak. Clark adds that any approach that fixes the functional form in advance has the same limitation.
+2. **Piecewise polynomials.** Splitting $x$ into 10 chunks at knots and fitting a separate cubic within each one follows the local shape better, but the pieces are not connected: the fit jumps at the chunk boundaries, so two nearby $x$ values on either side of a knot can get noticeably different predictions. Each piece also sees only a tenth of the data, so each one overfits its own stretch.
+3. **A penalized spline.** Keeping the piecewise idea but requiring the pieces to join smoothly, and adding a penalty on wiggliness, gives a connected curve that follows the peak (about 1.9 against the true 2.0) without the extra wiggles, and ends within about 0.2 of the true curve. Its smooth uses about 17 effective degrees of freedom, close to the polynomial's 15 terms, so the improvement comes from where the flexibility sits, not from having more of it. In Clark's terms, a GAM is a GLM whose basis functions become extra columns in the data, like $x^2$ in a polynomial fit, estimated with a penalty to keep the smooth from overfitting.
+
+Panel 1 is the polynomial row of the basis table, panel 2 shows why the pieces need to join, and panel 3 is the spline basis described next.
 
 ### What a spline basis is
 
-A **spline** is a single curve built from many local pieces stitched together smoothly, rather than one global formula or a small number of hand-placed hinges: each piece only shapes the curve over a short stretch of $x$, and neighboring pieces are constrained to meet without a kink, so the whole curve can bend differently in different regions without any one region's shape being chosen by the analyst.
+A **spline** is one curve built from local polynomial pieces that join smoothly at knots, so it can bend differently in different parts of the record without the analyst choosing the shape of any one part (Wood, 2017, §4.2.1 and §5.1). That local construction is the point. A single global formula, such as a polynomial in time, tends to be most curved and most variable at the ends of the record, and its fitted value at one date can be pulled around by observations years away (Morton and Henderson, 2008); a spline's pieces each answer mostly to the data near them.
 
-The pieces themselves are basis functions, the same kind of object as the hinge term above, just more of them and smaller:
-
-$$b_1(x), \dots, b_k(x),$$
-
-each shaping only a short local stretch of $x$, and none of them placed by the analyst — `mgcv::gam()` constructs the set. That set is called a **spline basis**, and the fitted spline curve is the sum of those basis functions, each weighted by its own coefficient:
+`mgcv::gam()` constructs the basis functions $b_1(x), \dots, b_k(x)$, so none of them is placed by the analyst, and the fitted curve is their weighted sum:
 
 $$f(x) = \sum_{m=1}^{k} \beta_m b_m(x).$$
 
-This sum can trace out almost any smooth curve, but the expression is still a linear combination of fixed terms, exactly like the OLS and piecewise sums above. What's new is that a fitted penalty, not an analyst placing knots by eye, decides how much of that flexibility survives.
+This sum can trace out almost any smooth curve, but it is still a linear combination of fixed terms, like the OLS and piecewise sums above. What is new is that a fitted penalty, not an analyst placing knots by eye, decides how much of that flexibility the curve uses.
 
 ### The GAM linear predictor
 
-A GAM's linear predictor is $\eta = \beta_0 + f(x)$, with $f$ the spline-basis sum above standing in for the single coefficient times $x$ an OLS fit would use. `mgcv::gam()` constructs a rich basis (up to `k` candidate knots) and a fitted **smoothing penalty** decides how much of that flexibility survives, shrinking toward a straight line wherever the data doesn't support the extra wiggle.
+A GAM's linear predictor is $\eta = \beta_0 + f(x)$, with $f$ the spline-basis sum above standing in for the single coefficient times $x$ an OLS fit would use. Once the intercept is in the model, $f$ uses $k - 1$ of the $k$ basis functions: `mgcv` constrains each smooth to average zero over the data, so the overall level is carried by $\beta_0$ alone (`mgcv` documentation, `?identifiability`). `mgcv::gam()` builds a basis of dimension `k`, and a **smoothing penalty**, with its weight estimated from the data, decides how much of that flexibility the fitted curve uses. A larger penalty pulls the whole curve toward a straight line (Wood, 2017, §4.2.1–4.2.2).
+
+The sum inside $f$ is not one undivided block. The thin plate basis (`bs = "tp"`, the default) is built so that its first two basis functions are a constant and a straight line, and the rest are curved (see [Kinds of basis](#kinds-of-basis)). The $k$ basis functions fall into three groups:
+
+- **The constant** is dropped from $f$, because the intercept $\beta_0$ already carries it. This is the constraint that keeps the smooth separate from the intercept, and why the edf ceiling is $k - 1$ (see [What edf means](#what-edf-means)).
+- **The straight line** is left alone by the penalty, which measures curvature and finds none in a line.
+- **The remaining $k - 2$** are curved, "wiggly" functions, and they are what the penalty shrinks.
+
+Writing the straight line out separately gives the same linear predictor with its parts named:
+
+$$
+\eta =
+\underbrace{\beta_0 + \beta_1 x}_{\substack{\text{unpenalized:}\\ \text{an OLS straight line}}}
++ \underbrace{\sum_{j=1}^{k-2} \beta_{1+j}\, z_j(x)}_{\substack{\text{penalized:}\\ \text{the wiggles}}}
+$${#eq-gam-parts}
+
+where $z_1, \dots, z_{k-2}$ are the wiggly basis functions. The first two terms are the OLS model from the start of this chapter, and a GAM adds the penalized wiggles on top of it. For the copper fit below, with `k = 40`, that is one straight line plus 38 wiggly basis functions. When the penalty is large enough to shrink every wiggle coefficient to near zero, what remains is the straight line $\beta_0 + \beta_1 x$, which is why a heavily penalized smooth ends up as a line rather than as a flat curve. The [GAMM chapter](gamm.qmd#mixed-models-for-a-single-record) uses this same split to call the straight-line part fixed effects and the wiggles random effects.
 
 ### How the smoothing penalty is fit
 
-Fitting isn't just least squares on the basis columns. Instead, the coefficients $\beta_1, \dots, \beta_k$ are chosen to minimize a single criterion, the **penalized sum of squares**:
+Fitting isn't just least squares on the basis columns. Instead, the coefficients $\beta_1, \dots, \beta_k$ are chosen to minimize a single criterion, the **penalized sum of squares** (Rodríguez, 2001, §2.3; Wood, 2017, §4.2.2; the same criterion defines the cubic smoothing spline in Wood, 2017, §5.1.2):
 
 $$\mathrm{PSS} = \underbrace{\sum_{i=1}^n \left(y_i - f(x_i)\right)^2}_{\text{lack of fit}} + \; \lambda \underbrace{\int f''(x)^2\,dx}_{\text{roughness}}.$$
 
-The first term is ordinary squared error, the same quantity OLS minimizes on its own — it gets smaller the closer the fitted curve $f(x_i)$ tracks each observed $y_i$. The second term, the roughness penalty, is large when $f$ bends sharply and zero when $f$ is a straight line, since a line has zero second derivative everywhere; it's what stops the fit from chasing every observation exactly, which an unpenalized `k`-knot basis could otherwise do. $\lambda$ sets the exchange rate between the two: $\lambda \to 0$ lets the fit use as much of the basis's flexibility as it wants and behave like unpenalized regression on that basis, $\lambda \to \infty$ forces $f$ back to a straight line regardless of what the basis could represent. `method = "REML"` below estimates $\lambda$ from the data itself, rather than fixing it or choosing it by eye.
+The first term is ordinary squared error, the same quantity OLS minimizes on its own; it gets smaller the closer the fitted curve $f(x_i)$ tracks each observed $y_i$. The second term, the roughness penalty, is large when $f$ bends sharply and zero when $f$ is a straight line, since a line has zero second derivative everywhere; it's what stops the fit from chasing every observation exactly, which an unpenalized `k`-knot basis could otherwise do. $\lambda$ sets the exchange rate between the two: $\lambda \to 0$ lets the fit use as much of the basis's flexibility as it wants and behave like unpenalized regression on that basis, $\lambda \to \infty$ forces $f$ back to a straight line regardless of what the basis could represent (Wood, 2017, §4.2.2). Straight lines are the penalty's null space: they cost nothing under it, so no value of $\lambda$ can shrink the smooth past a line to zero (Wood, 2017, §5.1.2). `method = "REML"` below estimates $\lambda$ from the data itself, rather than fixing it or choosing it by eye.
+
+**Choosing $\lambda$ with REML.** Because $\lambda$ decides the shape of the fitted curve, the way it is chosen matters as much as the basis. REML stands for **restricted maximum likelihood**, a method from mixed models for estimating variance components. It applies here because the penalty can be read as a prior on wiggliness: the smooth's wiggly coefficients are treated as random effects whose variance is the residual variance divided by $\lambda$ (Wood, 2017, §4.2.4; `mgcv` documentation, `?gam.selection`). A small variance holds those coefficients near zero, giving a heavily penalized, nearly straight curve; a large variance lets the curve bend. REML picks the variance, and with it $\lambda$, that makes the observed data most likely once the random coefficients are averaged over. The "restricted" part adjusts for the fixed effects, the unpenalized intercept and straight line in @eq-gam-parts, also being estimated from the same data. In ordinary regression, the same adjustment is why the residual variance is estimated by dividing by $n - p$ rather than $n$.
+
+`mgcv`'s default criterion is generalized cross-validation (GCV), which picks $\lambda$ so that the fit predicts left-out observations well. REML is set explicitly in this chapter for stability: the `mgcv` documentation notes that REML and ML "are less prone to local minima than the other criteria, and may therefore be preferable" (`?gam.selection`), so the chosen $\lambda$ depends less on where the optimizer starts. Simpson (2018, §4.2) also prefers REML for trend estimation, following Wood (2011).
 
 ### What edf means
 
-The penalty above decides how much of the basis's flexibility survives, but that decision needs to be reportable as a single number — something to put in a results table next to the smooth term, the way an OLS fit reports one slope. That number is the **effective degrees of freedom (edf)**, and it's what `summary()` prints beside every smooth term fit on this site, including `fit_cu` below.
+The amount of flexibility the penalty leaves is reported as one number, the **effective degrees of freedom (edf)**, which `summary()` prints beside every smooth term, including `fit_cu` below. It plays the role a single slope plays in an OLS results table.
 
-For this purpose, edf is a curvature dial: edf ≈ 1 means the penalty squeezed the smooth back to essentially a straight line, and edf ≈ `k` means the penalty let it use nearly all the flexibility the basis allows. Reading it off a fit says, in one number, how much curvature survived. (Formally it's the trace of the model's influence matrix at the fitted $\lambda$ — see Wood, 2017, §6.1.2, for the full definition — but the dial reading above is what matters for interpreting a fit.)
+Edf works as a curvature dial: edf ≈ 1 means the penalty squeezed the smooth back to essentially a straight line, and edf near `k - 1` means the penalty let it use nearly all the flexibility the basis allows. The ceiling is `k - 1` rather than `k` because one basis dimension is absorbed by the constraint that keeps the smooth separate from the intercept; `mgcv` reports that ceiling as `k'` (Wood, 2017, §6.1 and §7.2.1; Clark, 2022). Reading edf off a fit says, in one number, how much curvature survived.
 
 ### Where a GAM sits between a fixed form and no form at all
 
-The basis dimension `k` caps how wiggly the fit is allowed to get; the fitted penalty decides how much of that allowance actually gets used, based on the data. That makes a GAM's flexibility data-driven, sitting between a fixed parametric form (piecewise regression, with its hand-placed hinge) and no form at all (k-NN, LOESS, with no coefficients at all).
+The basis dimension `k` caps how wiggly the fit is allowed to get; the fitted penalty decides how much of that allowance actually gets used, based on the data. That makes a GAM's flexibility data-driven, sitting between a fixed parametric form (piecewise regression, with its hand-placed hinge) and no form at all (k-NN, LOESS, with no coefficients at all). Wood (2017, §4.2.2) makes the same division of labor explicit: provided `k` is large enough, neither its exact value nor the knot locations have much influence on the fit, and it is $\lambda$ that determines the shape.
 
 ### Why a GAM supports a significance test
 
-The fitted smooth carries an edf and a significance test that answers a concrete question: is this smooth distinguishable from flat at all. That's the same kind of reportable number a slope or a breakpoint gives elsewhere in this vignette, and it's what turns "is this concentration currently rising, falling, or holding" into an answerable, testable question below, rather than a read off a noisy plot.
+The fitted smooth comes with a test of whether it differs from flat over the record, the same kind of reportable result a slope or a breakpoint gives elsewhere on this site. The p-value is approximate, because it is computed after $\lambda$ has been estimated from the same data, so it is read as strength of evidence rather than against a sharp cutoff (Wood, 2017, §6.12; Clark, 2022).
 
 ## The shape in the record
 
 ### Raw series
 
 ```{r}
-#| label: cu-raw-series
+#| label: fig-cu-raw
+#| fig-cap: "Total Copper, monthly samples, raw scale, with `ggplot2`'s default smoother for a first look."
 #| message: false
 ggplot(cu_wq, aes(year_frac, result)) +
   geom_point(alpha = 0.5) +
-  geom_smooth(se = FALSE) +
-  labs(x = "Year", title = "Total Copper — raw scale", y = "Copper (µg/L)") +
+  geom_smooth(se = TRUE) +
+  labs(x = "Year", title = "Total Copper: raw scale", y = "Copper (µg/L)") +
   nlt_theme
 ```
 
-An early low, stable period; a rise to a higher plateau; a brief spike well above that; a drop back down; a further drop below the original level; and a partial recovery — none of it periodic, none of it a straight line or two. The smoothed curve above is itself a LOESS fit — `ggplot2`'s default smoother at this data size — used here the same informal way [k-NN](knn-regression.qmd) and [LOESS](loess-smoothing.qmd) are used deliberately for Total Phosphorus: to see the shape before deciding what to do with it. Here, that pass doesn't resolve into any recognizable family the way Total Phosphorus's did — there's no logistic, exponential, or other simple curve this traces out — which is why this chapter reaches for a GAM instead of a parametric fit.
+@fig-cu-raw shows an early low, stable period, a rise to a higher plateau, a brief spike well above that, a drop back down, a further drop below the original level and a partial recovery. None of it is periodic, and none of it is a straight line or two. The smoothed curve is `ggplot2`'s default LOESS smoother, used informally, as in the [k-NN](knn-regression.qmd) and [LOESS](loess-smoothing.qmd) chapters, to see the shape before choosing a model.
 
 ### Checking the scale: log vs. raw
 
@@ -117,9 +242,32 @@ Total Copper is a concentration, so the usual dilution/loading argument for logg
 
 ## Fitting the shape
 
+### What `gam()` builds from these choices
+
+Every fit below uses the same call, `gam(log(result) ~ s(year_frac, bs = "tp", k = ...), method = "REML")`. Each argument fixes one part of the model, and `mgcv` works out the rest from the data. A thin plate regression spline has no knots, so unlike panel 2 of the polynomial-to-GAM figure, nothing is chosen chunk by chunk: the basis is built once over the whole record (`mgcv` documentation, `?smooth.construct.tp.smooth.spec`; Wood, 2003).
+
+```{r}
+#| label: cu-tp-basis
+# build the k = 20 basis on its own, without fitting, to see its size against the number of dates
+n_dates <- n_distinct(cu_wq$year_frac)
+tp_k20 <- smoothCon(s(year_frac, bs = "tp", k = 20), data = cu_wq)[[1]]
+c(unique_dates = n_dates, basis_functions = ncol(tp_k20$X))
+```
+
+| Set by the analyst | Worked out by `mgcv` |
+|---|---|
+| `bs = "tp"`, the type of basis | Where the basis functions sit. The full thin plate spline has one function centred on each of the `r n_dates` unique sampling dates, plus a constant and a straight line. |
+| `m`, left at its default of 2, so the penalty is on the squared second derivative | The shape of each of those functions. In one dimension with `m = 2`, the function centred on date $x_i$ grows as $\lvert x - x_i \rvert^3$, which makes the fit a cubic-type spline. |
+| `k`, how many basis functions to keep | Which `k` functions are kept. The full set of `r n_dates + 2` is reduced to `k` by an eigen-decomposition, chosen so the reduced basis departs as little as possible from the full spline (Wood, 2003). Dates would be subsampled only above 2,000. |
+| `method = "REML"`, how $\lambda$ is chosen | $\lambda$ itself, and then the `k` coefficients that minimize the PSS at that $\lambda$. |
+
+The chunk above confirms the reduction for `k = 20`: the record has `r n_dates` unique dates, and the basis handed to the fit has `r ncol(tp_k20$X)` functions. One of those is absorbed by the constraint that keeps the smooth separate from the intercept, which is why `k.check()` below reports `k'` as `r ncol(tp_k20$X) - 1`.
+
+In short, the analyst sets the type of basis, its size and the penalty; the sampling dates set the basis functions; REML and the PSS set the weights. Of the analyst's choices, `k` is the one the data cannot settle on their own, which is what the next two checks address.
+
 ### Checking that k is large enough
 
-`k` only sets a ceiling on the basis's flexibility — it doesn't by itself guarantee the ceiling is high enough for this record's sharpest transitions. `mgcv::k.check()` tests exactly that, by checking whether the fitted smooth's residuals still show pattern a larger basis could have absorbed:
+`k` sets a ceiling on the basis's flexibility, but not whether that ceiling is high enough for this record's sharpest transitions. `mgcv::k.check()` tests that, by checking whether the residuals still show pattern a larger basis could have absorbed:
 
 ```{r}
 #| label: cu-k-check
@@ -129,11 +277,11 @@ set.seed(1) # k.check()'s p-value comes from a random resampling test, not a clo
 k.check(fit_cu_k20)
 ```
 
-A k-index below 1 paired with a small p-value is `mgcv`'s signal that `k = 20` is not quite large enough: the basis is capped a little before the penalty gets to decide anything.
+A k-index below 1 paired with a small p-value is `mgcv`'s signal that `k = 20` is not quite large enough: the basis is capped a little before the penalty gets to decide anything. The k-index is the ratio of the model's residual-variance estimate to one computed from differences between neighboring residuals, so a value below 1 means nearby residuals still resemble each other more than they should (Wood, 2017, §7.2.1). The check is informal: Wood (2017, §7.2.1) treats a low p-value as most concerning when the edf is close to `k'`, and both Wood and Clark (2022) suggest increasing `k` and seeing whether the edf and the fitted curve change, which is what the sweep below does.
 
 ### Choosing k, not just clearing the check
 
-`k.check()` only answers one question — is the ceiling too tight — and stops mattering the moment the answer is no. It says nothing about which of the values that clear it actually fits best, so the next step is a small sweep past the point where the check first passes, tracking AIC and deviance explained alongside the k-index:
+`k.check()` answers only whether the ceiling is too tight. It says nothing about which of the values that clear it fits best, so the next step is a small sweep past the point where the check first passes, tracking AIC and deviance explained alongside the k-index:
 
 ```{r}
 #| label: cu-k-sweep
@@ -167,61 +315,150 @@ set.seed(1) # k.check()'s p-value comes from a random resampling test, not a clo
 k.check(fit_cu)
 ```
 
-With `k = 40`, the k-index is comfortably above 1 ($p = 0.84$) — no residual pattern left over that the basis can't reach, and by a wider margin than `k = 25` gave ($p = 0.27$ there). The fitted edf of 25.7 out of a maximum of 39 shows the penalty is using roughly two thirds of the available flexibility rather than all of it, consistent with the AIC plateau in the sweep above: the extra basis capacity beyond `k = 40` isn't being used because the penalty doesn't need it, not because the ceiling is still binding. The smooth term remains significant by a wide margin ($p < 2\times10^{-16}$).
+With `k = 40`, the k-index is above 1 ($p = 0.84$), a wider margin than `k = 25` gave ($p = 0.27$). The fitted edf of 25.7 out of a maximum of 39 means the penalty uses about two thirds of the available flexibility, consistent with the AIC plateau: the basis is no longer the limit. The smooth term is significant: the approximate test of whether log copper is flat over the whole record gives $p < 2\times10^{-16}$, so a no-change trend is strongly rejected. This test does not say where the record rises or falls; [Where the record is rising, falling, or flat](#where-the-record-is-rising-falling-or-flat) does.
+
+### Checking against a polynomial
+
+A spline basis is a set of engineered features handed to a linear fit, so the obvious ordinary least squares (OLS) alternative is to engineer the features by hand: a polynomial in `year_frac`, fit at increasing degree on the same log scale.
+
+```{r}
+#| label: cu-ols-comparison
+# polynomial features of increasing degree, as the OLS attempt to match the GAM's flexibility
+poly_fits <- lapply(c(4, 8, 12, 16), function(deg) lm(log(result) ~ poly(year_frac, deg), data = cu_wq))
+
+data.frame(
+  model = c(sprintf("OLS, degree-%d polynomial", c(4, 8, 12, 16)), "GAM"),
+  AIC = round(c(sapply(poly_fits, AIC), AIC(fit_cu)), 1),
+  R2_or_dev_explained = round(c(sapply(poly_fits, function(f) summary(f)$r.squared), summary(fit_cu)$dev.expl), 3)
+)
+```
+
+Even at degree 16, the polynomial explains less of the variation than the GAM ($R^2$ of `r round(summary(poly_fits[[4]])$r.squared, 2)` against `r round(summary(fit_cu)$dev.expl, 2)` deviance explained) and has a much worse AIC (`r round(AIC(poly_fits[[4]]), 1)` against `r round(AIC(fit_cu), 1)`). The GAM uses more flexibility (`r round(sum(fit_cu$edf[-1]), 1)` edf against the polynomial's 16 terms), but AIC charges for that, so the gap is not explained by the GAM simply having more parameters. The reason is the one shown with simulated data in [From a polynomial to a GAM](#from-a-polynomial-to-a-gam): each polynomial term shapes the curve across the whole record, so fitting copper's sharp rises, falls and spike in one place pulls the fit away from the data elsewhere, while each spline basis function mainly affects its own stretch of the record.
 
 ## The fitted curve, with a confidence band
 
+### Uncertainty in the fit: a Bayesian reading
+
+The intervals in the rest of this chapter are described with the words *prior*, *posterior* and *credible interval*. No Bayesian software is involved and no prior is chosen by hand. The terms come from a second way of reading the same `mgcv` fit: Simpson (2018, §4.3) notes that a GAM of this kind has a Bayesian interpretation, and the uncertainty in the fitted curve is computed from it.
+
+- **Prior.** Before the data are seen, the roughness penalty treats wiggly curves as less plausible than smooth ones. This is the "prior on wiggliness" from [How the smoothing penalty is fit](#how-the-smoothing-penalty-is-fit), with $\lambda$ setting how strongly smoothness is favoured.
+- **Posterior.** After the data are seen, the plausible values of the coefficients are described by a multivariate normal distribution centred on the fitted coefficients, with the covariance matrix the model reports (Simpson, 2018, §4.3). `vcov(fit_cu)` returns this Bayesian posterior covariance matrix by default; it treats $\lambda$ as fixed at its REML estimate (`mgcv` documentation, `?vcov.gam`).
+- **Posterior simulation.** Drawing sets of coefficients from that distribution, and turning each set into a curve, gives a collection of trends, each consistent with the data and with the smoothness assumption (Simpson, 2018, §4.3). Where the draws agree, the trend is well determined; where they spread apart, it is not.
+
 ```{r}
-#| label: cu-ci-band-plot
-# 300-point grid spanning the record, for a smooth prediction curve
+#| label: fig-cu-posterior-draws
+#| fig-cap: "The fitted Total Copper trend (black) and 20 trends drawn from the posterior distribution of the coefficients (blue), back-transformed to µg/L."
+# 300-point grid spanning the record, for smooth prediction curves
 grid <- data.frame(year_frac = seq(min(cu_wq$year_frac), max(cu_wq$year_frac), length.out = 300))
 pred <- predict(fit_cu, newdata = grid, se.fit = TRUE)
-grid <- grid |>
-  mutate(
-    fit = pred$fit,
-    # band built on the log scale (where the fit's errors are ~Gaussian), then exponentiated
-    lower = exp(fit - 1.96 * pred$se.fit),
-    upper = exp(fit + 1.96 * pred$se.fit),
-    fit = exp(fit)
-  )
+se <- as.vector(pred$se.fit)
+Xp <- predict(fit_cu, newdata = grid, type = "lpmatrix") # maps a set of coefficients to the fitted values at the 300 dates
+
+# 20 sets of coefficients drawn from the posterior, each turned into a curve in µg/L
+set.seed(2)
+b_draws <- mgcv::rmvn(20, mu = coef(fit_cu), V = vcov(fit_cu))
+draws <- data.frame(
+  year_frac = rep(grid$year_frac, times = 20),
+  draw = rep(1:20, each = nrow(grid)),
+  value = exp(as.vector(Xp %*% t(b_draws)))
+)
 
 ggplot() +
-  geom_point(data = cu_wq, aes(year_frac, result), alpha = 0.4, color = "grey40") +
-  geom_ribbon(data = grid, aes(year_frac, ymin = lower, ymax = upper), fill = "steelblue", alpha = 0.25) +
-  geom_line(data = grid, aes(year_frac, fit), color = "steelblue", linewidth = 1) +
-  labs(x = "Year", title = "Total Copper — fitted GAM with 95% confidence band", y = "Copper (µg/L)") +
+  geom_point(data = cu_wq, aes(year_frac, result), alpha = 0.3, color = "grey40") +
+  geom_line(data = draws, aes(year_frac, value, group = draw), color = "steelblue", alpha = 0.4) +
+  geom_line(aes(grid$year_frac, exp(pred$fit)), color = "black", linewidth = 1) +
+  labs(x = "Year", y = "Median copper (µg/L)",
+       title = "Total Copper: fitted trend and 20 draws from the posterior",
+       subtitle = "Black: fitted trend. Blue: posterior draws.") +
   nlt_theme
 ```
 
-`predict(fit_cu, se.fit = TRUE)` returns a standard error alongside the fitted value at every point, the same as `predict.lm()` would, because the smooth term is a fitted linear combination of coefficients with a covariance matrix, the same machinery `lm()` relies on for its own confidence intervals. That covariance is propagated through `exp()` for the raw-scale band shown here. The band widens over the brief spike around year 4.5–5, where only a few months of data inform that stretch of the curve, and the fitted peak (about `r round(max(grid$fit), 1)` µg/L) sits below the highest individual raw readings there — a short, few-month excursion is exactly what a smoothing penalty will partly discount, since a spike consistent with only a handful of points is harder to distinguish from noise than a shift that persists across many.
+The draws in @fig-cu-posterior-draws agree closely on the large features of the record: the rise near year 2, the fall near year 7 and the low period between years 7.5 and 9 look much the same in every draw. They disagree on the smaller wiggles within the two higher plateaus (years 2.5 to 4.5 and 5.5 to 6.5) and on the height of the spike near year 5, where some draws peak several µg/L above or below the fitted curve. Simpson (2018, §4.3) reads his own posterior draws the same way: a feature reproduced across the draws is well supported, and one that comes and goes between draws should not be over-interpreted.
 
-## Where the record is rising, falling, or flat
+The standard errors from `predict(fit_cu, se.fit = TRUE)` come from the same posterior covariance matrix, so the bands below summarize how widely curves like these spread at each date, and the simultaneous band is computed by simulating many more of them. For reporting, a band reads as the range of trends consistent with the data, given that the trend is smooth.
 
-A single edf and p-value confirm the smooth term overall departs from flat, but they only speak to the record as a whole. They say nothing about where the record is moving in a given direction, which is the question a regulator actually asks. That question is answered by the derivative of the fitted curve — its local slope — and a confidence interval on that derivative, estimated by finite differences: nudge the fitted curve forward and backward by a small step, take $(\hat y(t+h) - \hat y(t-h))/2h$ as the local slope, and get its standard error from `predict(..., type = "lpmatrix")`.
+### Pointwise and simultaneous bands
 
-The `lpmatrix` is the "prediction matrix" $X_p$ that maps the model's coefficients onto linear-predictor values at any set of points, so $X_p\hat\beta$ reproduces `predict(fit)` directly and, for any linear combination of predictions defined by a row vector $d$, $\mathrm{Var}(d^\top X_p \hat\beta) = d^\top X_p \, \mathrm{vcov}(\text{fit}) \, X_p^\top d$ (Wood, 2017, §7.2.6) — the same propagation used below with $d$ built from the forward- and backward-shifted rows of $X_p$ instead of a single contrast.
+`predict(fit_cu, se.fit = TRUE)` returns a standard error alongside the fitted value at every date, as `predict.lm()` would. The curve is evaluated at 300 dates, and there are two ways to turn those standard errors into a 95% band:
 
-### Computing the local slope
+- A **pointwise** band is the fitted value ± 1.96 standard errors at each date. It is the band `mgcv` and most plotting defaults draw. Simpson (2018, §4.3) notes that, read as a Bayesian credible interval, it has good *across-the-function* coverage: averaged over the record it covers the true curve at about 95% of dates, but at any single date coverage can be more or less than 95%. Read across 300 dates, some stretches of the true curve can fall outside it, the same problem as running 300 separate tests.
+- A **simultaneous** band is widened until it contains the *whole* true curve, at all 300 dates at once, with 95% probability. It is the band to use when a conclusion depends on the shape of the curve as a whole, such as comparing the level in one period with another or saying that the curve lies inside the band throughout.
+
+Simpson (2018, §4.3 and Appendix 1) computes the simultaneous band with the simulation method of Ruppert et al. (2003). Many sets of coefficients are drawn from the fitted model's posterior distribution, each one a curve consistent with the data. For each draw, the largest gap between the simulated and the fitted curve, measured in standard errors, is recorded over the whole record. The 95th percentile of those largest gaps replaces 1.96 as the multiplier on the standard error. The code below follows those steps on the full fitted curve, intercept included, so the band can be converted to µg/L:
 
 ```{r}
-#| label: cu-derivative-calc
-h <- 1e-3
-# lpmatrix at year_frac +/- h, so each row's finite difference gives that point's local slope
-Xp_plus  <- predict(fit_cu, newdata = data.frame(year_frac = grid$year_frac + h), type = "lpmatrix")
-Xp_minus <- predict(fit_cu, newdata = data.frame(year_frac = grid$year_frac - h), type = "lpmatrix")
-D <- (Xp_plus - Xp_minus) / (2 * h)
-
-beta <- coef(fit_cu)
-Vp <- vcov(fit_cu)
-deriv <- as.numeric(D %*% beta)
-# per-point SE via the delta-method propagation in the text above: Var(D %*% beta) row by row
-se <- sqrt(rowSums((D %*% Vp) * D))
+#| label: fig-cu-bands
+#| fig-cap: "The fitted Total Copper trend with a pointwise 95% band (dark) and a simultaneous 95% band (light)."
+# simultaneous critical value, following Simpson (2018, Appendix 1),
+# using grid, pred, se and Xp from the posterior-draws chunk above
+set.seed(1) # the critical value comes from posterior simulation
+b_dev <- mgcv::rmvn(10000, mu = rep(0, length(coef(fit_cu))), V = vcov(fit_cu)) # coefficient draws, centred on the fit
+curve_dev <- Xp %*% t(b_dev)                                 # each column: one simulated curve minus the fitted curve
+max_gap <- apply(abs(curve_dev / se), 2, max)                # largest gap per draw, in standard errors
+crit_sim <- unname(quantile(max_gap, 0.95))
 
 grid <- grid |>
   mutate(
-    deriv_lower = deriv - 1.96 * se,
-    deriv_upper = deriv + 1.96 * se,
-    # a point counts as rising/falling only if its whole CI clears zero, not just its point estimate
+    fit = pred$fit,
+    # bands built on the log scale (where the fit's errors are ~Gaussian), then exponentiated
+    lower = exp(fit - 1.96 * se),
+    upper = exp(fit + 1.96 * se),
+    lower_sim = exp(fit - crit_sim * se),
+    upper_sim = exp(fit + crit_sim * se),
+    fit = exp(fit)
+  )
+
+c(pointwise = 1.96, simultaneous = round(crit_sim, 2))
+
+ggplot() +
+  geom_point(data = cu_wq, aes(year_frac, result), alpha = 0.4, color = "grey40") +
+  geom_ribbon(data = grid, aes(year_frac, ymin = lower_sim, ymax = upper_sim, fill = "Simultaneous"), alpha = 0.25) +
+  geom_ribbon(data = grid, aes(year_frac, ymin = lower, ymax = upper, fill = "Pointwise"), alpha = 0.45) +
+  geom_line(data = grid, aes(year_frac, fit), color = "steelblue", linewidth = 1) +
+  scale_fill_manual(values = c(Simultaneous = "steelblue", Pointwise = "steelblue4"), name = "95% band") +
+  labs(x = "Year", title = "Total Copper: fitted GAM with pointwise and simultaneous 95% bands",
+       subtitle = "Dark band: pointwise. Light band: simultaneous.", y = "Copper (µg/L)") +
+  nlt_theme
+```
+
+In @fig-cu-bands, the simultaneous critical value is `r round(crit_sim, 2)`, against 1.96 for the pointwise band, so on the log scale the simultaneous band is about `r round(100 * (crit_sim / 1.96 - 1))`% wider; Simpson (2018, §4.3) reports 3.07 and 3.43 for his two example records. Both bands are built on the log scale, where the errors are close to Gaussian, and exponentiated to µg/L. The pointwise band suits reading the level at one chosen date; statements about the curve across the record use the simultaneous band, and the [next section](#where-the-record-is-rising-falling-or-flat) applies the same construction to the slope.
+
+Both bands widen over the spike around years 4.5 to 5, where only a few months of data inform the curve. The fitted peak (about `r round(max(grid$fit), 1)` µg/L) sits below the highest readings there, because a smoothing penalty partly discounts a short excursion supported by only a handful of points. Morton and Henderson (2008) describe this as a general property of smoothing splines: they miss rapid changes in slope and underestimate the height of local peaks and the depth of local troughs. The fitted spike height is therefore not reported as the peak concentration.
+
+## Where the record is rising, falling, or flat
+
+The smooth-term test says the trend departs from flat somewhere in the record, not where it is rising or falling, which is the question a regulator asks. Simpson (2018, §4.4) answers it with the derivative of the fitted trend, its local slope: estimate the derivative by finite differences (predicting the trend at two times a very small step apart and taking the difference) at many points along the record, and call a stretch a period of change wherever the interval on the derivative excludes zero.
+
+### A simultaneous interval on the slope
+
+The slope is checked at the same 300 dates, so the pointwise-versus-simultaneous choice from the [confidence band section](#the-fitted-curve-with-a-confidence-band) comes up again: a pointwise interval would let some dates clear zero by chance, so short stretches could look like change when they are noise. Simpson (2018, §4.4) applies the §4.3 construction to the derivative, with the largest gap now measured between the simulated and the fitted *derivative*. This chapter uses that simultaneous interval.
+
+### Computing the local slope
+
+The `gratia` package (Simpson, 2024), written by the author of the method, implements both steps in `derivatives()`:
+
+```{r}
+#| label: cu-derivative-calc
+set.seed(1) # the simultaneous critical value comes from posterior simulation
+cu_deriv <- derivatives(
+  fit_cu,
+  select = "s(year_frac)",
+  data = data.frame(year_frac = grid$year_frac), # the same 300-point grid as the trend plot above
+  type = "central",          # slope from points just before and just after each date
+  interval = "simultaneous", # cover all 300 dates at once, not each date on its own
+  n_sim = 10000              # posterior draws used to find the critical value
+)
+
+grid <- grid |>
+  mutate(
+    deriv = cu_deriv$.derivative,
+    deriv_lower = cu_deriv$.lower_ci,
+    deriv_upper = cu_deriv$.upper_ci,
+    # log-scale slope as % change per year in median copper: (exp(slope) - 1) * 100
+    pct = (exp(deriv) - 1) * 100,
+    pct_lower = (exp(deriv_lower) - 1) * 100,
+    pct_upper = (exp(deriv_upper) - 1) * 100,
+    # rising/falling only where the whole simultaneous interval clears zero
     trend = case_when(
       deriv_lower > 0 ~ "rising",
       deriv_upper < 0 ~ "falling",
@@ -229,36 +466,105 @@ grid <- grid |>
     )
   )
 
+c(critical_value = unique(round(cu_deriv$.crit, 2)))
 table(grid$trend)
 ```
 
-The 300 grid points span the record at roughly two-week intervals, so each count above is a share of the full ~12-year record classified by trend direction, not a slope magnitude: `r sum(grid$trend == "flat")` points (`r round(100*mean(grid$trend=="flat"))`%, ~`r round(sum(grid$trend=="flat")/300*diff(range(cu_wq$year_frac)),1)` years) fall in stretches classified "flat" — the local slope's CI didn't clear zero there — while `r sum(grid$trend=="rising")` points fall in stretches classified "rising" and `r sum(grid$trend=="falling")` in stretches classified "falling", where it did. That most of the record lands in "flat" is expected: the shape below is long stable stretches punctuated by short, sharp rises and falls, and it's exactly those short stretches the classification is built to isolate rather than average away.
+The critical value is `r unique(round(cu_deriv$.crit, 2))`, so each simultaneous interval is the derivative ± `r unique(round(cu_deriv$.crit, 2))` standard errors, against ± 1.96 for a pointwise one. The derivative is on the log scale the model was fit on. Its sign gives the direction of change in copper, and converting it as $(e^{\text{slope}} - 1) \times 100$ gives a percent change per year in the median concentration, the same conversion the [transformations chapter](transformations.qmd) uses for log-scale slopes. The conversion is increasing, so a log-scale interval that excludes zero still excludes 0% per year after it.
+
+`derivatives()` works on the smooth term alone, without the model's intercept, while the confidence band above includes the intercept. Both choices follow from the question each one answers. In `mgcv` the smooth is constrained to average zero over the data, so the intercept is the mean of log copper across the samples (`r round(coef(fit_cu)[1], 3)`, a geometric mean of about `r round(exp(coef(fit_cu)[1]), 1)` µg/L), not the value at the first sampling date, and moving the time origin does not change it. A level, such as the concentration on a given date or a comparison between two periods, needs that overall mean and its uncertainty, so the band includes it. A rate of change does not: the intercept is a constant, its derivative is zero, and the slope and its interval are the same with or without it.
+
+The grid points are about two weeks apart, so the counts above are shares of the 12-year record. `r sum(grid$trend == "flat")` points (`r round(100*mean(grid$trend=="flat"))`%, about `r round(sum(grid$trend=="flat")/300*diff(range(cu_wq$year_frac)),1)` years) are classified "flat", where the interval on the slope includes zero; `r sum(grid$trend=="rising")` are "rising" and `r sum(grid$trend=="falling")` "falling". A mostly flat record is expected for this shape: long stable stretches separated by short, sharp rises and falls.
 
 ### Visualizing significant stretches
 
+@fig-cu-derivative follows the layout of Simpson (2018, Figures 9 and 10): the fitted trend in the response's own units, then its first derivative with a simultaneous interval. Here the units are µg/L for the level and percent per year for the rate. `gratia`'s `draw()` methods are built around the centred smooth term and a pointwise band, so the two panels are drawn with `ggplot2` from the band and derivative already computed:
+
 ```{r}
-#| label: cu-derivative-plot
-# each grid row paired with the next, to draw the curve as colored segments rather than points
-grid_seg <- grid |>
-  mutate(year_frac_end = lead(year_frac), fit_end = lead(fit)) |>
-  filter(!is.na(year_frac_end))
+#| label: fig-cu-derivative
+#| fig-cap: "Top: the fitted median with its 95% simultaneous band, coloured where the trend is significantly rising (orange) or falling (blue). Bottom: the rate of change, in percent per year, with its 95% simultaneous interval."
+#| fig-height: 7
+trend_cols <- c(rising = "#D55E00", falling = "#0072B2", flat = "grey40")
 
-trend_colors <- c(rising = "#2E7D32", falling = "#C62828", flat = "grey55")
+# top: the level, in µg/L, with the simultaneous band from the confidence band section,
+# coloured where the simultaneous interval on the slope excludes zero
+p_level <- ggplot(grid, aes(year_frac)) +
+  geom_point(data = cu_wq, aes(year_frac, result), alpha = 0.3, color = "grey40") +
+  geom_ribbon(aes(ymin = lower_sim, ymax = upper_sim), fill = "grey70", alpha = 0.5) +
+  geom_line(aes(y = fit, colour = trend, group = 1), linewidth = 1.1, lineend = "round") +
+  scale_colour_manual(values = trend_cols) +
+  labs(x = NULL, y = "Median copper (µg/L)",
+       title = "Fitted trend with 95% simultaneous band",
+       subtitle = "Orange: significantly rising. Blue: significantly falling. Grey: no significant change.") +
+  nlt_theme
 
-ggplot() +
-  geom_point(data = cu_wq, aes(year_frac, result), alpha = 0.35, color = "grey40") +
-  geom_segment(
-    data = grid_seg,
-    aes(x = year_frac, y = fit, xend = year_frac_end, yend = fit_end, color = trend),
-    linewidth = 1.1
-  ) +
-  scale_color_manual(values = trend_colors, name = "local trend") +
-  labs(x = "Year", title = "Total Copper — fitted trajectory by significance of local slope", y = "Copper (µg/L)") +
-  nlt_theme +
-  theme(legend.position = "right")
+# bottom: the rate, with its simultaneous interval, against a zero line.
+# plotted on the log scale the slope was estimated on, so a halving and a doubling sit
+# the same distance from zero, with tick labels converted to % per year
+pct_breaks <- c(-90, -75, -50, 0, 100, 300, 1000)
+p_rate <- ggplot(grid, aes(year_frac)) +
+  geom_ribbon(aes(ymin = deriv_lower, ymax = deriv_upper), fill = "grey70", alpha = 0.5) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_line(aes(y = deriv, colour = trend, group = 1), linewidth = 1.1, lineend = "round") +
+  scale_colour_manual(values = trend_cols) +
+  scale_y_continuous(breaks = log1p(pct_breaks / 100), labels = paste0(pct_breaks, "%")) +
+  labs(x = "Year", y = "Change in median copper (% per year)",
+       title = "Rate of change with 95% simultaneous interval") +
+  nlt_theme
+
+p_level / p_rate
 ```
 
-The coloring tracks the shape described from the raw plot, but now with each stretch labeled by whether the change is statistically distinguishable from flat: a significant rise onto the first plateau, a significant further rise into the spike, a significant fall back down, a significant fall below the original baseline, a significant partial recovery, and flat stretches — not significantly different from zero slope — everywhere the record is actually holding at a level rather than moving. That's the concrete answer to "is it currently getting better or worse": at any point on this record, the color at that point is a tested answer, not a visual impression.
+Every band in the figure is simultaneous. The top panel is the fitted median in µg/L with the band from the [confidence band section](#the-fitted-curve-with-a-confidence-band). The bottom panel is the evidence: wherever its band sits wholly above or below the dashed zero line, that stretch counts as rising (orange) or falling (blue), and the same colours mark the curve above. The highlighting comes from an interval on the slope, not a visual impression. The rate axis is spaced on the log scale and labelled in percent per year, so a halving and a doubling sit the same distance from zero; on an evenly spaced percent axis, rises could run past +1000% while falls stop at −100%, and declines would look smaller than they are. The rates are large because the transitions are steep and short: the fastest rise is about `r round(max(grid$pct))`% per year and the fastest fall about `r round(min(grid$pct))`% per year, each lasting only months, so they describe how steep a transition is, not a change that persists for a year.
+
+Two cautions on reading it. First, the start and end of each highlighted stretch are approximate: they mark where the band happens to cross zero on a 300-point grid, and a slope that is changing gradually clears zero gradually. Second, the interval assumes the model's residuals are independent; the diagnostics below check that assumption, and if it failed, the band would be too narrow (Simpson, 2018, §4.5).
+
+### What this adds over a single slope
+
+A straight-line regression, or a Mann-Kendall test with Sen's slope, summarizes a record with one rate of change. Simpson (2018, §4.4) points out what that implies: a linear trend has a constant rate of change, so its test applies to the whole time series at once. Applied to this record, on the same log scale:
+
+```{r}
+#| label: cu-single-slope
+#| tbl-cap: "Single-rate trend summaries of the whole Total Copper record, on the log scale, expressed as % change per year in median copper."
+# single-rate summaries of the same record, each as % change per year in median copper
+ols_cu <- lm(log(result) ~ year_frac, data = cu_wq)
+ols_slope <- coef(ols_cu)[["year_frac"]]
+
+# Sen's slope (also called Theil-Sen): draw a line between every pair of samples,
+# take each line's slope, and report the median slope (so a few extreme samples have little pull)
+pairs <- combn(nrow(cu_wq), 2) # every pair of sample indices, one pair per column
+sen_slope <- median(
+  (log(cu_wq$result[pairs[2, ]]) - log(cu_wq$result[pairs[1, ]])) /
+    (cu_wq$year_frac[pairs[2, ]] - cu_wq$year_frac[pairs[1, ]])
+)
+
+# Mann-Kendall: over every pair of samples, count how often the later one is higher
+# vs. lower (Kendall's tau), and test whether ups and downs are unbalanced;
+# it gives a direction and a p-value, not a rate, so it is paired with Sen's slope above
+mk_cu <- cor.test(cu_wq$year_frac, cu_wq$result, method = "kendall", exact = FALSE)
+
+single_slopes <- data.frame(
+  Method = c("OLS straight line", "Mann-Kendall test with Sen's slope"),
+  Rate = sprintf("%.1f%% per year", c((exp(ols_slope) - 1) * 100, (exp(sen_slope) - 1) * 100)),
+  `p-value` = as.character(signif(c(summary(ols_cu)$coefficients["year_frac", 4], mk_cu$p.value), 2)),
+  `Null hypothesis tested` = c("The fitted line has zero slope",
+                               "No monotonic trend: later samples equally likely to be higher or lower"),
+  check.names = FALSE
+)
+knitr::kable(single_slopes, align = c("l", "r", "r", "l"))
+```
+
+Read on their own, these say that copper declined over the record by about `r round(abs((exp(ols_slope) - 1) * 100), 1)`% (OLS) to `r round(abs((exp(sen_slope) - 1) * 100), 1)`% (Sen's slope) per year, and the decline is significant (OLS $p$ = `r signif(summary(ols_cu)$coefficients["year_frac", 4], 2)`, Mann-Kendall $p$ = `r signif(mk_cu$p.value, 2)`). That is a fair description of one thing only: on average, later samples tend to be lower than earlier ones, mostly because the elevated middle of the record comes before the low period near year 8. It does not describe how copper behaved. The fitted trend ends higher than it starts (about `r round(grid$fit[1], 1)` µg/L at the first date and `r round(grid$fit[nrow(grid)], 1)` µg/L at the last), there was no sustained decline, and the two significant falls each lasted only months.
+
+The derivative with a simultaneous interval answers different questions, date by date:
+
+- **When** copper changed: the stretches where the interval on the slope excludes zero.
+- **In which direction**: rises and falls are separated, so they do not cancel into one average.
+- **How fast**: a rate, in percent per year, with an interval, at each date.
+- **Where there is no evidence of change**: about `r round(100 * mean(grid$trend == "flat"))`% of this record, which a single slope cannot show.
+- **What the record is doing now**: the classification at the end of the record (here, "`r grid$trend[nrow(grid)]`"), rather than an average over all twelve years.
+
+A single slope remains a reasonable summary when a record changes at a roughly steady rate, as Total Chloride does in the [linear vs. nonlinear comparison](linear-vs-nonlinear-comparison.qmd). For a record like this one, the date-by-date view is what separates a real current trend from the leftover effect of an earlier event.
 
 ## Model diagnostics
 
@@ -276,66 +582,67 @@ shapiro.test(resid(fit_cu))
 
 Both tests fail to reject their null: the Breusch-Pagan test ($p = 0.415$) finds no evidence of heteroscedasticity, and the Shapiro-Wilk test ($p = 0.776$) finds no evidence of non-normal residuals, on the log scale settled on above.
 
-The GAM's own F-test on the smooth term rests on the same independence assumption as any OLS-family test, so it's worth checking rather than assuming it.
+The smooth-term test and the simultaneous intervals on the curve and its slope all assume independent residuals, so that is checked next.
 
 ### Independence
 
 ```{r}
-#| label: cu-acf
-acf(resid(fit_cu), main = "Total Copper GAM — residual autocorrelation")
+#| label: fig-cu-acf
+#| fig-cap: "Residual autocorrelation of the Total Copper GAM. The dashed lines are approximate 95% bounds for independent residuals."
+acf(resid(fit_cu), main = "Total Copper GAM: residual autocorrelation")
 Box.test(resid(fit_cu), lag = 1, type = "Ljung-Box")
 ```
 
-This comes out as clean as the [piecewise](piecewise-regression.qmd) and [changepoint](changepoint-detection.qmd) chapters on this front: lag-1 autocorrelation is close to zero, and the Ljung-Box test finds no evidence against independence ($p = 0.299$).
+@fig-cu-acf comes out as clean as the [piecewise](piecewise-regression.qmd) and [changepoint](changepoint-detection.qmd) chapters on this front: lag-1 autocorrelation is close to zero, and the Ljung-Box test finds no evidence against independence ($p = 0.299$).
 
 ### Residuals over time
 
 ```{r}
-#| label: cu-resid-vs-time
+#| label: fig-cu-resid-time
+#| fig-cap: "Residuals of the Total Copper GAM, on the log scale, plotted against time."
 #| message: false
 cu_wq |>
   mutate(resid = resid(fit_cu)) |>
   ggplot(aes(year_frac, resid)) +
   geom_point(alpha = 0.5) +
   geom_hline(yintercept = 0, linetype = "dashed") +
-  labs(x = "Year", title = "Total Copper GAM — residuals over time", y = "residual (log scale)") +
+  labs(x = "Year", title = "Total Copper GAM: residuals over time", y = "residual (log scale)") +
   nlt_theme
 ```
 
-Plotted against time, the residuals are fairly evenly spread across the record.
-
-## Why not just engineer the right OLS features
-
-The GAM's spline basis is still feature engineering handed to a linear fit, the same category of move as [Piecewise Regression](piecewise-regression.qmd)'s hand-built hinge term. Unlike Dissolved Oxygen's clean annual cycle (next chapter), though, there's no `sin`/`cos` shortcut here — nothing about a step-and-spike pattern is periodic. The honest OLS alternative is a plain polynomial in `year_frac`, tried at increasing degree:
-
-```{r}
-#| label: cu-ols-comparison
-# escalating polynomial degree as the honest OLS attempt to match the GAM's flexibility
-poly_fits <- lapply(c(4, 8, 12, 16), function(deg) lm(log(result) ~ poly(year_frac, deg), data = cu_wq))
-
-data.frame(
-  model = c(sprintf("OLS, degree-%d polynomial", c(4, 8, 12, 16)), "GAM"),
-  AIC = c(sapply(poly_fits, AIC), AIC(fit_cu)),
-  R2_or_dev_explained = c(sapply(poly_fits, function(f) summary(f)$r.squared), summary(fit_cu)$dev.expl)
-)
-```
-
-Even at degree 16, the polynomial's $R^2$ (0.87) and AIC ($-31.5$) both trail the GAM's (0.94 deviance explained, AIC $-118.0$) by a wide margin, and the gap isn't closing quickly as degree increases. The reason is structural: a polynomial term is **global** — every coefficient shapes the curve's behaviour everywhere, so fitting a sharp local step or spike well tends to distort the fit far away from it, or costs an escalating number of parameters trying not to. A spline basis is **local** — each basis function's influence is confined to a neighborhood of its knot, so representing one sharp transition doesn't fight with representing another one elsewhere in the record. That locality, not just a higher effective degree, is what a hand-built polynomial feature can't reproduce no matter how high its degree goes.
+Plotted against time (@fig-cu-resid-time), the residuals are fairly evenly spread across the record.
 
 ## Interpretation
 
-Total Copper moved through five distinct, individually significant phases over the twelve-year record: each stretch was tested, not eyeballed, via the derivative-significance plot above, and none of it describable by a straight line, a single knot, or a periodic function.
+**What the record did.** Median Total Copper moved through five phases over the twelve-year record: a rise onto a higher plateau near year 2, a further rise into a short spike near year 4.5, a fall back to the plateau near year 5, a fall below the original level near year 7, and a partial recovery near year 9. Each phase is identified where the 95% simultaneous interval on the slope of the trend excludes zero, not by eye, and the simultaneous interval means the set of phases holds up when the whole record is read at once. The rest of the record, about `r round(100 * mean(grid$trend == "flat"))`%, shows no significant change. The start and end dates of each phase are approximate. The intervals rely on independent residuals, and the Ljung-Box check above found no evidence against that assumption.
 
-The GAM's smoothing penalty found this shape without being told any of it in advance, using only a smoothness assumption, and a degree-16 polynomial handed every opportunity to match it still fell well short — the concrete case, in this vignette, for reaching past a fixed parametric form when a series' shape isn't known ahead of time.
+**Why a single slope would mislead here.** OLS and Mann-Kendall with Sen's slope both report a significant whole-record decline (`r sprintf("%.1f", (exp(ols_slope) - 1) * 100)`% and `r sprintf("%.1f", (exp(sen_slope) - 1) * 100)`% per year), yet the fitted median ends higher than it starts and both significant falls lasted only months. The single-slope result mostly reflects the elevated middle of the record coming before the low period near year 8 ([What this adds over a single slope](#what-this-adds-over-a-single-slope)).
 
-For a regulator asking "is this currently a problem," the record closes on the flat, partially-recovered plateau rather than the elevated spike, which is a materially different answer than either the raw high-water mark or a single straight-line trend fit to the whole record would give.
+**Where the record stands now.** For a regulator asking whether copper is currently a problem, the record ends in a stretch with no significant change, at a fitted median of about `r round(grid$fit[nrow(grid)], 1)` µg/L, after the partial recovery near year 9. That answer differs from the highest single reading (`r round(max(cu_wq$result), 1)` µg/L, during the spike) and from the whole-record decline the single-slope methods report. The fitted height of the spike itself is not reported as a peak concentration, since smoothing tends to understate short peaks.
+
+**How firm these features are.** The posterior draws agree on the large rises and falls and on the low period near year 8, and disagree on the smaller wiggles within the two higher plateaus. The five phases above are the features the data support; the smaller wiggles are not interpreted.
+
+**Why a GAM was needed.** The smoothing penalty found this shape using only a smoothness assumption, with no breakpoints, periods or curve family chosen in advance, while a degree-16 polynomial still fell well short of it. That is the case, in this vignette, for a GAM when a record's shape is not known ahead of time and the question is where and when it changed.
+
+[Generalized Additive Mixed Models](gamm.qmd), next, checks the assumption this chapter's significance test leaned on: that the residuals are independent. Total Copper passed that check; Dissolved Oxygen does not.
 
 ## Extending this analysis
 
-`s(year_frac)` alone is the single-predictor case; a GAM's real strength shows up once more than time is believed to drive the analyte. If a plausible confound exists — flow, a co-occurring pollutant, an upstream operational variable — the natural extension is a multi-predictor GAM, `s(year_frac) + s(flow)` or similar, which lets each smooth absorb its own share of the variation instead of forcing everything through a single time trend the way this chapter does. The same machinery generalizes to multiple monitoring sites too, via a `by`-factor smooth (`s(year_frac, by = site)`) that lets the fitted shape differ across sites while still sharing one model, rather than fitting each site's record separately the way this single-composite-site case study does.
+Time is the only predictor in this chapter. If another variable plausibly drives copper, such as flow, a co-occurring pollutant or an upstream operation, the extension is a multi-predictor GAM, `s(year_frac) + s(flow)` or similar, which lets each smooth absorb its own share of the variation instead of forcing everything through one time trend. Fitting flow and time together in one model, rather than removing flow first, is the preferred route for regression-based water-quality trend models (Hirsch et al., 1991). The same machinery generalizes to multiple monitoring sites too, via a `by`-factor smooth (`s(year_frac, by = site)`) that lets the fitted shape differ across sites while still sharing one model, rather than fitting each site's record separately the way this single-composite-site case study does.
 
 ## References
 
 - UBC Master of Data Science, *DSCI 561: Regression I*.
-- UBC Master of Data Science, *DSCI 562: Regression II*. [Lecture 6: Local Regression](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture6_local_regression.html).
+- UBC Master of Data Science, *DSCI 573: Feature and Model Selection*. [Lecture 3: Feature Engineering](https://ubc-mds.github.io/DSCI_573_feat-model-select/lectures/03_feature-engineering.html); [Lecture 5: Loss Functions, Intro to Regularization](https://ubc-mds.github.io/DSCI_573_feat-model-select/lectures/05_loss-functions-regularization_intro.html).
+- Bishop, C.M. (2006). *Pattern Recognition and Machine Learning*. Springer, New York. §3.1 "Linear Basis Function Models" and Chapter 5 introduction. Free PDF from the author: <https://www.microsoft.com/en-us/research/publication/pattern-recognition-machine-learning/>.
+- Clark, M. (2022). *Generalized Additive Models*. Online guide, last modified 2022-07-16. <https://m-clark.github.io/generalized-additive-models/>.
+- Hirsch, R.M., Alexander, R.B., and Smith, R.A. (1991). Selection of methods for the detection and estimation of trends in water quality. *Water Resources Research*, 27(5), 803–813.
+- Morton, R., and Henderson, B.L. (2008). Estimation of nonlinear trends in water quality: An improved approach using generalized additive models. *Water Resources Research*, 44, W07420.
+- Rodríguez, G. (2001). *Smoothing and Non-Parametric Regression*. Course notes, Princeton University. §2.3 "Smoothing Splines". <https://www.stat.cmu.edu/~brian/valerie/617-2022/week07/spline%20references/Rodriguez%20(2001)%20smoothing.pdf>.
+- Ruppert, D., Wand, M.P., and Carroll, R.J. (2003). *Semiparametric Regression*. Cambridge University Press.
+- Simpson, G.L. (2018). Modelling palaeoecological time series using generalised additive models. *Frontiers in Ecology and Evolution*, 6, 149. <https://doi.org/10.3389/fevo.2018.00149>.
+- Simpson, G.L. (2024). gratia: An R package for exploring generalized additive models. *Journal of Open Source Software*, 9(104), 6962. <https://doi.org/10.21105/joss.06962>. Version 0.11.2 used.
+- Wood, S.N. (2003). Thin plate regression splines. *Journal of the Royal Statistical Society: Series B*, 65(1), 95–114. <https://doi.org/10.1111/1467-9868.00374>.
+- Wood, S.N. (2011). Fast stable restricted maximum likelihood and marginal likelihood estimation of semiparametric generalized linear models. *Journal of the Royal Statistical Society: Series B*, 73(1), 3–36. <https://doi.org/10.1111/j.1467-9868.2010.00749.x>.
 - Wood, S.N. (2017). *Generalized Additive Models: An Introduction with R*, Second Edition. CRC Press.
+- Wood, S.N. *mgcv: Mixed GAM Computation Vehicle with Automatic Smoothness Estimation*. R package version 1.9.4, help pages `?gam.selection`, `?identifiability`, `?vcov.gam` and `?smooth.construct.tp.smooth.spec`. <https://CRAN.R-project.org/package=mgcv>.

@@ -26,7 +26,8 @@ None of those chapters show what happens when that same flexibility is offered t
 ## The shape in the record
 
 ```{r}
-#| label: control-raw-series
+#| label: fig-control-raw
+#| fig-cap: "Total Chloride and Total Zinc, raw scale, with a default `geom_smooth()` curve."
 #| message: false
 ggplot(control_wq, aes(year_frac, result)) +
   geom_point(alpha = 0.5) +
@@ -36,16 +37,16 @@ ggplot(control_wq, aes(year_frac, result)) +
   nlt_theme
 ```
 
-Total Chloride climbs steadily with no visible bend; Total Zinc scatters around a flat level with no discernible pattern. Neither shape suggests a break, a plateau, or any structure a straight line wouldn't capture.
+In @fig-control-raw, Total Chloride climbs steadily with no visible bend; Total Zinc scatters around a flat level with no discernible pattern. Neither shape suggests a break, a plateau, or any structure a straight line wouldn't capture.
 
 ## Fitting linear and nonlinear models to each
 
-For each analyte, `lm(log(result) ~ year_frac)` and `mgcv::gam(log(result) ~ s(year_frac, bs = "tp", k = 20), method = "REML")` are fit on the same data — the same GAM specification used in the [GAM](gam.qmd) chapter, with the same `k = 20` basis capacity, so the comparison isn't handicapped by an artificially small smooth.
+For each analyte, `lm(log(result) ~ year_frac)` and `mgcv::gam(log(result) ~ s(year_frac, bs = "tp", k = 20), method = "REML")` are fit on the same data. The smooth is the thin plate spline from the [GAM](gam.qmd) chapter. That chapter needed `k = 40` for Total Copper's many bends; here `k = 20` leaves a ceiling of 19 edf, far more room than a straight line or a flat record needs, so the comparison isn't handicapped by an artificially small smooth. `k.check()` below confirms the basis is not the limit.
 
 Two numbers do the actual comparing:
 
-- **AIC**, $\mathrm{AIC} = -2\log L + 2p$, trades off fit (the log-likelihood $\log L$) against complexity (the parameter count $p$ — for a GAM, `mgcv` substitutes the smooth term's edf, defined in [GAM](gam.qmd), for $p$) — lower is better, and the extra parameters a GAM's smooth term is allowed to use only help its AIC if they buy enough of a likelihood improvement to outweigh their cost.
-- **Deviance explained**, $1 - D_{\text{resid}}/D_{\text{null}}$, is a GAM's analogue of $R^2$: the share of the null model's deviance (an intercept-only fit) that the fitted model accounts for, comparable directly against `summary(lm)$r.squared` on the same log-scale response.
+- **AIC**, $\mathrm{AIC} = -2\log L + 2p$, trades off fit (the log-likelihood $\log L$) against complexity (the parameter count $p$ — for a GAM, `mgcv` substitutes the smooth term's edf, defined in [GAM](gam.qmd), for $p$) — lower is better, and the extra parameters a GAM's smooth term is allowed to use only help its AIC if they buy enough of a likelihood improvement to outweigh their cost (DSCI 562).
+- **Deviance explained**, $1 - D_{\text{resid}}/D_{\text{null}}$, is a GAM's analogue of $R^2$: the share of the null model's deviance (an intercept-only fit; DSCI 562) that the fitted model accounts for, comparable directly against `summary(lm)$r.squared` on the same log-scale response.
 
 ```{r}
 #| label: control-model-fits
@@ -77,14 +78,20 @@ rbind(
   comparison_table(fits_chloride, "Total Chloride"),
   comparison_table(fits_zinc, "Total Zinc")
 )
+
+# basis-size check: edf far below k' means k = 20 is not limiting the fit
+k_checks <- rbind(k.check(fits_chloride$gam), k.check(fits_zinc$gam))
+rownames(k_checks) <- c("Total Chloride", "Total Zinc")
+k_checks
 ```
 
-Both analytes tell the same story: the smooth term's effective degrees of freedom collapses to essentially 1 in both cases (edf ≈ 1.0) — the GAM's own fitted penalty found no curvature worth keeping and shrank the smooth down to a straight line on its own, without being told the answer in advance. AIC is effectively tied between the two models for each analyte (the GAM's slightly higher AIC reflects the small cost of estimating a penalty that ends up buying nothing), and the linear model's $R^2$ matches the GAM's deviance explained almost exactly, because the two fits are, numerically, the same line.
+Both analytes tell the same story: the smooth term's effective degrees of freedom collapses to essentially 1 in both cases (edf ≈ 1.0) — the GAM's own fitted penalty found no curvature worth keeping and shrank the smooth down to a straight line on its own, without being told the answer in advance. The basis check agrees: both k-indices are above 1 ($p$ = `r round(k_checks[1, "p-value"], 2)` and `r round(k_checks[2, "p-value"], 2)`), and an edf of 1 against a ceiling of 19 means the penalty set the shape, not the basis size. AIC is effectively tied between the two models for each analyte (the GAM's slightly higher AIC reflects the small cost of estimating a penalty that ends up buying nothing), and the linear model's $R^2$ matches the GAM's deviance explained almost exactly, because the two fits are, numerically, the same line.
 
 The difference between the two analytes shows up in whether that line means anything. For **Total Chloride**, the smooth term is significant and deviance explained is substantial (`r round(summary(fits_chloride$gam)$dev.expl*100,1)`%) — a real trend, just a straight one. For **Total Zinc**, the smooth term is not statistically distinguishable from flat ($p =$ `r round(summary(fits_zinc$gam)$s.table[,4], 3)`) and deviance explained is negligible (`r round(summary(fits_zinc$gam)$dev.expl*100,1)`%) — there's a line to draw through the noise, same as there would be through any random scatter, but nothing about the data supports treating it as a real trend.
 
 ```{r}
-#| label: control-fit-plot
+#| label: fig-control-fit
+#| fig-cap: "Linear (solid) and GAM (dashed) fits to Total Chloride and Total Zinc."
 grid_chloride <- data.frame(year_frac = seq(min(chloride_wq$year_frac), max(chloride_wq$year_frac), length.out = 200))
 grid_zinc <- data.frame(year_frac = seq(min(zinc_wq$year_frac), max(zinc_wq$year_frac), length.out = 200))
 
@@ -113,7 +120,7 @@ ggplot() +
   theme(legend.position = "right")
 ```
 
-The dashed GAM line sits almost exactly on top of the solid linear line in both panels — visual confirmation of the edf ≈ 1 result above. The GAM was free to bend and chose not to, in both directions: it didn't flatten Total Chloride's real trend, and it didn't manufacture curvature out of Total Zinc's noise.
+In @fig-control-fit, the dashed GAM line sits almost exactly on top of the solid linear line in both panels — visual confirmation of the edf ≈ 1 result above. The GAM was free to bend and chose not to, in both directions: it didn't flatten Total Chloride's real trend, and it didn't manufacture curvature out of Total Zinc's noise.
 
 ## Model diagnostics
 
@@ -141,9 +148,11 @@ Neither control case rewards the extra flexibility a GAM offers, and the simple 
 
 ## When to reach for this check
 
-This chapter ran the lm-vs-GAM comparison on two analytes chosen in advance to explore `lm()`-vs-`gam()`-by-AIC comparison for any series where a plot leaves real doubt about whether a bend is genuine or just noise. It isn't a step every series needs: for most analytes, the raw plot already settles the question — a visibly straight trend or a visibly flat scatter doesn't need a fitted GAM to confirm what's apparent by eye. This chapter is for the narrower case where that visual judgment is genuinely unclear and a fitted comparison is worth the effort to settle it.
+This chapter ran the `lm()`-vs-`gam()` comparison on two analytes chosen in advance as controls. In practice, the same AIC comparison applies to any series where a plot leaves real doubt about whether a bend is genuine or just noise. It isn't a step every series needs: for most analytes, the raw plot already settles the question — a visibly straight trend or a visibly flat scatter doesn't need a fitted GAM to confirm what's apparent by eye. This chapter is for the narrower case where that visual judgment is genuinely unclear and a fitted comparison is worth the effort to settle it.
+
+This comparison settles how flexible a model needs to be, not which form it should take. [Mechanism vs. Shape](mechanism-vs-shape.qmd), next, takes up that broader question: when a parametric curve is justified over a GAM, and why a curve that only resembles the data is not enough to justify one.
 
 ## References
 
 - UBC Master of Data Science, *DSCI 561: Regression I*.
-- UBC Master of Data Science, *DSCI 562: Regression II*. [Course notes](https://ubc-mds.github.io/DSCI_562_regr-2/).
+- UBC Master of Data Science, *DSCI 562: Regression II*. [Lecture 2: Model Selection and Multinomial Logistic Regression](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture2_glm_model_selection_multinomial.html).

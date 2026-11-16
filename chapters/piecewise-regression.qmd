@@ -17,7 +17,7 @@ tn <- non_linear_wq |> filter(analyte == "Total Nitrogen")
 
 ## From a single slope to a bending line
 
-A straight-line regression assumes one slope holds across the whole record. Three progressively less restrictive models relax that assumption:
+A straight-line regression assumes one slope holds across the whole record. Three progressively less restrictive models relax that assumption (DSCI 562):
 
 1. **Piecewise constant.** The regressor's range is split into intervals at one or more knots, and each interval gets its own flat mean — no slope at all within a segment, and a jump in the fitted value at every knot.
 2. **Non-continuous piecewise linear.** Each interval gets its own intercept and its own slope, by interacting the regressor with the interval indicator. Segments still don't connect at the knots — there's a visible jump in the fitted line even though nothing in the data actually jumped.
@@ -33,12 +33,13 @@ A hinge function is feature engineering on the regressor rather than a link func
 
 Concentration data is fit on the log scale throughout this site: it matches the multiplicative-process story concentration data tends to follow, and it corrects the variance-growing-with-the-mean residual pattern (a distributional problem, in the Breusch-Pagan/Shapiro-Wilk sense) that fitting the raw scale directly would leave behind — both covered in [Transformations](transformations.qmd).
 
-A consequence: the hinge-term coefficient $\hat\beta$ comes out of the model in log-units per year, not concentration units, so it isn't itself a usable rate. Back-transforming it, $(\exp(\hat\beta) - 1) \times 100\%$, converts that log-scale slope into a constant percentage rate of change — the number actually reported for the post-break segment below.
+A consequence: the hinge-term coefficient $\hat\beta$ comes out of the model in log-units per year, not concentration units, so it isn't itself a usable rate. Back-transforming it, $(\exp(\hat\beta) - 1) \times 100\%$, converts that log-scale slope into a constant percentage rate of change — the number actually reported for the post-break segment below. This is the standard conversion for log-scale trend slopes in water-quality trend analysis (Hirsch et al., 1991).
 
 ## The shape in the record
 
 ```{r}
-#| label: tn-raw-series
+#| label: fig-tn-raw-series
+#| fig-cap: "Total Nitrogen, log scale, with a default `geom_smooth()` curve for a first look."
 #| message: false
 
 ggplot(tn, aes(year_frac, log(result))) +
@@ -50,9 +51,9 @@ ggplot(tn, aes(year_frac, log(result))) +
 
 ## Estimating the breakpoint
 
-Although the breakpoint is known from the syntheic data, it was not assumed to be known in our analysis: it was estimated from the data using `segmented::segmented()`, seeded from an initial visual read of the series.
+Although the breakpoint is known from the synthetic data, it was not assumed to be known in our analysis: it was estimated from the data using `segmented::segmented()`, seeded from an initial visual read of the series.
 
-That function starts from a baseline model with a single global slope and no breakpoint, then runs an iterative local search — **Muggeo's algorithm**: re-estimate the breakpoint given the current slopes, re-estimate the slopes given the new breakpoint, repeat to convergence — around the starting value. It is a local search rather than an exhaustive one, so the starting value needs to be in the right neighborhood rather than exact; here, roughly year 6 (`psu = 6`) into the twelve-year record, read off the plot above.
+That function starts from a baseline model with a single global slope and no breakpoint, then runs an iterative local search around a starting value, **Muggeo's algorithm** (Muggeo, 2008). At each iteration it fits an ordinary linear model containing the hinge term at the current breakpoint plus one extra term that measures the gap the fitted line would need to jump there. It then moves the breakpoint by an amount set by that gap, and repeats until the breakpoint stops moving. The search is local rather than exhaustive, so the starting guess has to be supplied, and it needs to be in the right neighborhood rather than exact; the clearer the break, the less the starting value matters (Muggeo, 2008). Here it is roughly year 6 (`psi = 6`) into the twelve-year record, read off @fig-tn-raw-series.
 
 ```{r}
 #| label: tn-segmented-fit
@@ -62,6 +63,8 @@ seg_tn <- segmented(lm_tn, seg.Z = ~year_frac, psi = 6)
 
 ## Results
 
+Two tools answer two different questions here. `segmented()` is an estimator: assuming the slope changes, it reports where and by how much. Davies' test is a hypothesis test: it asks whether the slope changes at all, and supplies the p-value that `segmented()`'s coefficient table leaves out.
+
 ### Coefficient table, and why one p-value is `NA`
 
 ```{r}
@@ -69,9 +72,17 @@ seg_tn <- segmented(lm_tn, seg.Z = ~year_frac, psi = 6)
 summary(seg_tn)
 ```
 
-The coefficient table above reports `Pr(>|t|)` as `NA` for the change-in-slope term, `U1.year_frac`. That's expected rather than missing. A standard $t$-test on a regression coefficient assumes the design matrix — the columns of regressor values `lm()` is fed — is fixed, known in advance, not something estimated from the same data the coefficient is fit on. Here it isn't fixed: `U1.year_frac`'s column is $(x_i - \hat c)_+$, built from the estimated breakpoint $\hat c$, so the regressor a reader would need held fixed to trust the usual $t$-distribution was itself derived from this dataset's outcomes.
+The coefficient table above reports `Pr(>|t|)` as `NA` for the change-in-slope term, `U1.year_frac`. That's expected rather than missing. The natural test for that term is $H_0$: the slope does not change, $\beta_2 = 0$. But under that null the breakpoint $c$ has no meaning: if the slope never changes, there is no location for the change to sit at, so a parameter the model depends on vanishes exactly when the null is true. The standard $t$- and Wald tests assume this doesn't happen, and when it does their p-values are heavily underestimated, with real error rates several times the nominal level (Muggeo, 2008). `segmented` reports `NA` rather than a number that would overstate the evidence for a break.
 
-That breaks the assumption the reference distribution relies on, so `segmented` reports `NA` rather than a number that would overstate precision. `confint()` and `slope()` below are the package's alternative — inference on the breakpoint and on each segment's slope that accounts for $\hat c$ being **estimated** rather than given.
+The test the package provides for this null is **Davies' test**, `davies.test()`. It evaluates the change-in-slope statistic at a grid of fixed candidate breakpoints across the range of `year_frac` and returns a p-value bounded for having searched over all of them (Muggeo, 2008):
+
+```{r}
+#| label: tn-davies
+davies_tn <- davies.test(lm_tn, seg.Z = ~year_frac)
+davies_tn
+```
+
+Davies' test rejects the no-change null ($p$ = `r signif(davies_tn$p.value, 2)`), so a change in slope is supported before any of the intervals below are read. Its `'best' at` value is the grid point with the largest statistic, a coarse screen rather than the breakpoint estimate, which comes from `segmented()` itself. That is why the two differ (about 5.3 here against `segmented()`'s 5.9): Davies' ten candidates sit about 1.3 years apart, so the best of them can only land near the optimum, while `segmented()` moves the breakpoint continuously until it settles. `confint()` and `slope()` below then give inference on the breakpoint's location and on each segment's slope, with $\hat c$ treated as **estimated** rather than given.
 
 ### Breakpoint and slope confidence intervals
 
@@ -87,12 +98,15 @@ slope(seg_tn)
 
 The breakpoint is estimated at `year_frac` ≈ 5.9 (95% CI 5.18–6.61) — roughly 5.9 years into the twelve-year record. Before the break, there is **no detectable trend** over the first six years. After the break, the slope is **clearly positive** (95% CI 0.120–0.160, i.e., excluding zero); back-transformed, $(\exp(0.140) - 1) \times 100\% \approx 15\%$ per year.
 
-`slope()`'s output reports a $t$-value but no p-value, for the same reason as the `NA` above — the reference distribution for that statistic isn't exact once the breakpoint is estimated rather than fixed. The confidence interval carries the same caveat but is what the package leads with, rather than a p-value that would look more precise than the estimation actually supports. It doesn't change the reading: the interval excludes zero for the post-break slope and includes it for the pre-break slope, the same conclusion a p-value would give.
+`slope()`'s output reports a $t$-value and a confidence interval but no p-value. The interval is approximate, since it treats the estimated breakpoint as though it were known, and it is what the package leads with. It doesn't change the reading: the interval excludes zero for the post-break slope and includes it for the pre-break slope, the same conclusion a p-value would give.
 
 ### Visualizing the fit
 
+@fig-tn-fitted draws the fitted model over the data, with the estimated breakpoint dashed and the post-break rate labelled.
+
 ```{r}
-#| label: tn-fitted-plot
+#| label: fig-tn-fitted
+#| fig-cap: "Continuous piecewise fit to Total Nitrogen on the log scale. Dashed line: estimated breakpoint."
 tn_pred <- tn |> mutate(fitted = predict(seg_tn))
 
 slope2 <- slope(seg_tn)$year_frac["slope2", ]
@@ -137,16 +151,17 @@ A third assumption — **independence** — isn't covered by either test above, 
 ### Independence
 
 ```{r}
-#| label: tn-acf
+#| label: fig-tn-acf
+#| fig-cap: "Residual autocorrelation of the piecewise fit. Dashed lines are approximate 95% bounds for independent residuals."
 acf(resid(seg_tn), main = "Total Nitrogen — residual autocorrelation")
 Box.test(resid(seg_tn), lag = 1, type = "Ljung-Box")
 ```
 
-**Autocorrelation** at lag $k$ is the correlation between each residual and the residual $k$ observations earlier, $\hat e_t$ vs. $\hat e_{t-k}$; lag-1 is that correlation one month back. A value near zero means this month's residual carries no information about last month's — consecutive readings aren't tracking each other beyond what the fitted trend already explains.
+**Autocorrelation** at lag $k$ is the correlation between each residual and the residual $k$ observations earlier, $\hat e_t$ vs. $\hat e_{t-k}$; lag-1 is that correlation one month back (DSCI 574). A value near zero means this month's residual carries no information about last month's — consecutive readings aren't tracking each other beyond what the fitted trend already explains.
 
 The **Ljung-Box test** makes that formal: $H_0$ is that the residuals are independent (no autocorrelation at the lags tested), assessed by pooling the squared autocorrelations across those lags into a single statistic — a low p-value means at least one of them is too large to be noise.
 
-Lag-1 autocorrelation is close to zero, and the Ljung-Box test finds no evidence against independence ($p = 0.731$). Nothing here argues for revisiting the segmented fit's standard errors the way [GAMM](gamm.qmd) has to for Dissolved Oxygen.
+Lag-1 autocorrelation is close to zero (@fig-tn-acf), and the Ljung-Box test finds no evidence against independence ($p = 0.731$). Nothing here argues for revisiting the segmented fit's standard errors the way [GAMM](gamm.qmd) has to for Dissolved Oxygen.
 
 ## Interpretation
 
@@ -154,9 +169,12 @@ Total Nitrogen was flat for roughly the first six years of the record and then b
 
 ## Extending this analysis
 
-This fit fully attributes Total Nitrogen's rise to time alone; a real trend analysis would typically check whether that rise tracks a hydrologic covariate instead — streamflow or precipitation, regressed out before testing for a residual trend — since a wet-weather-driven rise and a genuine loading increase call for different conclusions, and single-covariate time trends like this one can't distinguish them.
+This fit fully attributes Total Nitrogen's rise to time alone; a real trend analysis would typically check whether that rise tracks a hydrologic covariate instead, such as streamflow or precipitation, since a wet-weather-driven rise and a genuine loading increase call for different conclusions, and single-covariate time trends like this one can't distinguish them. Removing variation due to discharge is a standard step in water-quality trend analysis, and for a regression model the preferred route is to fit flow and time together, with discharge (or a transformation of it) as a second covariate, rather than regressing flow out first and testing the residuals afterward (Hirsch et al., 1991). The same source notes a limit: flow adjustment is not appropriate where regulation, diversion or withdrawals have changed the discharge record during the period being analyzed.
 
 ## References
 
 - UBC Master of Data Science, *DSCI 561: Regression I*.
-- UBC Master of Data Science, *DSCI 562: Regression II*. [Course notes](https://ubc-mds.github.io/DSCI_562_regr-2/).
+- UBC Master of Data Science, *DSCI 562: Regression II*. [Lecture 6: Local Regression](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture6_local_regression.html).
+- UBC Master of Data Science, *DSCI 574: Spatial and Temporal Models*. [Course outline, 2018-19](https://github.com/UBC-MDS/DSCI_574_spat-temp-mod).
+- Hirsch, R.M., Alexander, R.B., and Smith, R.A. (1991). Selection of methods for the detection and estimation of trends in water quality. *Water Resources Research*, 27(5), 803–813.
+- Muggeo, V.M.R. (2008). segmented: An R package to fit regression models with broken-line relationships. *R News*, 8(1), 20–25.

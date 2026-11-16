@@ -14,59 +14,120 @@ non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_ty
 tp_wq <- non_linear_wq |> filter(analyte == "Total Phosphorus")
 ```
 
-## Predicting by averaging nearby points
+## Why look at the shape first
 
-k-nearest-neighbors is most often introduced as a **classifier**: to label a query point, find its $k$ closest training points and take a majority vote of their classes. The **regression** version keeps the same lookup — find the $k$ closest points — and replaces the vote with an average of their (continuous) response values. Nothing else about the method changes; "regression" here just means the thing being predicted is a number, not a category.
+The chapters so far started with the analyst deciding what kind of change to look for. [Piecewise regression](piecewise-regression.qmd) assumed the slope bends at one point; [changepoint detection](changepoint-detection.qmd) assumed the level jumps once. Each then fitted coefficients around that choice, and the idea is that - in real life - that choice could be backed by something outside the data, such as a documented permit change or a suspected spill.
 
-It's commonly filed under **machine learning** rather than classical statistics, specifically as a **supervised** (it learns from labeled training examples), **non-parametric** (no fixed functional form), **instance-based** method — nothing is estimated ahead of time, so all the "learning" happens at prediction time by looking up nearby stored examples.
-
-Total Phosphorus rises through the middle years of the record and then settles onto a plateau. That shape doesn't match the case studies covered so far: [piecewise regression](piecewise-regression.qmd) assumes a single slope break, [changepoint detection](changepoint-detection.qmd) assumes a single level shift, and neither describes a smooth rise into a plateau. There's also no single point an analyst could point to as "the" knot.
-
-**k-nearest-neighbors (k-NN) regression** handles this by not committing to any functional form at all. "Nearest" is defined by Euclidean distance — the straight-line distance between two points, familiar from the Pythagorean theorem:
+Our exercise in this chapter with total phosphorus has no such backing. @fig-tp-raw shows the record with no fitted curve drawn on it:
 
 ```{r}
-#| label: fig-euclidean-distance
+#| label: fig-tp-raw
 #| echo: false
-#| fig-width: 5
-#| fig-height: 3.4
-#| fig-cap: "Euclidean distance between two points."
-p1 <- c(x = 1, y = 1)
-p2 <- c(x = 4, y = 3)
-
-ggplot() +
-  geom_vline(xintercept = 0:5, linetype = "dashed", color = "grey75", linewidth = 0.3) +
-  geom_hline(yintercept = 0:4, linetype = "dashed", color = "grey75", linewidth = 0.3) +
-  geom_segment(aes(x = p1["x"], y = p1["y"], xend = p2["x"], yend = p2["y"]), linewidth = 0.6) +
-  annotate("text", x = mean(c(p1["x"], p2["x"])) - 0.18, y = mean(c(p1["y"], p2["y"])) + 0.18,
-           label = "d", size = 4.5, fontface = "italic") +
-  geom_point(aes(x = p1["x"], y = p1["y"]), size = 5, shape = 21, fill = project_palette[2], color = "black") +
-  geom_point(aes(x = p2["x"], y = p2["y"]), size = 5, shape = 21, fill = project_palette[2], color = "black") +
-  annotate("text", x = p1["x"] - 0.5, y = p1["y"] - 0.35,
-           label = "P[1]~(x[1]*','~y[1])", parse = TRUE, size = 4) +
-  annotate("text", x = p2["x"] + 0.6, y = p2["y"] + 0.35,
-           label = "P[2]~(x[2]*','~y[2])", parse = TRUE, size = 4) +
-  coord_cartesian(xlim = c(-0.3, 5.5), ylim = c(-0.3, 4.3)) +
-  labs(title = "Euclidean Distance Between Two Points",
-       caption = expression("Euclidean distance ("*italic(d)*") = "*sqrt((x[2]-x[1])^2 + (y[2]-y[1])^2))) +
-  theme_void() +
-  theme(
-    plot.title = ggtext::element_textbox_simple(
-      fill = banner_fill,
-      color = banner_text_color,
-      face = "bold",
-      halign = 0.5,
-      padding = margin(5.5, 5.5, 5.5, 5.5),
-      margin = margin(b = 10),
-      box.colour = "black",
-      linetype = 1,
-      linewidth = 0.3
-    ),
-    plot.caption = element_text(hjust = 0.5, size = 11, margin = margin(t = 12)),
-    plot.margin = margin(10, 20, 10, 20)
-  )
+#| fig-cap: "Total Phosphorus, monthly samples, raw scale. No curve is fitted yet."
+ggplot(tp_wq, aes(year_frac, result)) +
+  geom_point(alpha = 0.5) +
+  labs(x = "Years since start of record", title = "Total Phosphorus — raw scale", y = "Phosphorus (mg/L)") +
+  nlt_theme
 ```
 
-A **query point** $x_0$ is just wherever a prediction is wanted — it's chosen by whoever's asking, rather than estimated by the algorithm. That's worth being explicit about because k-NN is easy to conflate with k-means clustering: k-means invents $k$ centroids by starting them at random and iteratively updating their positions. k-NN has no centroids and nothing random — for a query point $x_0$ on `year_frac`, it finds the $k$ training observations closest to it by this distance (here, on `year_frac` alone) — call this neighborhood $N_k(x_0)$ — and predicts the plain average of their responses. The fitted curve below is built from many query points along a plotting grid, each one an independent lookup-and-average:
+It sits low and roughly flat for the first few years, rises through the middle years, and settles onto a plateau for the rest of the record, with no event on file and no single point to call the knot. Neither a single slope break nor a single level shift describes a smooth rise into a plateau. A straight line would report it as still climbing, and a plateau misread as ongoing growth can lead to a treatment upgrade nobody needed (see [Why this matters for a client or regulator](../index.qmd#why-this-matters-for-a-client-or-regulator)). Picking a curve family that resembles the shape is not a safe shortcut either: each parameter of a fitted curve is a claim about the process behind the record, and a close fit does not show that process took place ([Mechanism vs. Shape](mechanism-vs-shape.qmd)).
+
+So before committing to any form, this chapter and [LOESS](loess-smoothing.qmd) after it make a **diagnostic pass**: let the data draw the curve, with no form assumed, and read what the record does. The aim is to see the shape clearly enough to decide what to fit next, not to report a result.
+
+Under this section of **Diagnosing Shape**, k-NN comes first because it is the simplest way to let the data draw the curve: the fitted value at any time is the average of the observations closest to it in time. It has one tuning parameter, $k$, which makes the tradeoff between following noise and smoothing away real change easy to see. LOESS refines the same idea with distance weights and a local regression, and the two are fit to the same record so their curves can be compared directly.
+
+## Predicting by averaging nearby points
+
+k-nearest-neighbors is most often introduced as a **classifier**: to label a query point, find its $k$ closest training points and take a majority vote of their classes. The **regression** version keeps the same lookup — find the $k$ closest points — and replaces the vote with an average of their (continuous) response values (Timbers et al., 2022, §7.5). Nothing else about the method changes; "regression" here just means the thing being predicted is a number, not a category.
+
+It's commonly filed under **machine learning** rather than classical statistics, specifically as a **supervised** (it learns from labeled training examples), **non-parametric** (no fixed functional form), **instance-based** method — nothing is estimated ahead of time, so all the "learning" happens at prediction time by looking up nearby stored examples (DSCI 571).
+
+**k-nearest-neighbors (k-NN) regression** doesn't commit to any functional form. Every prediction comes from three ingredients:
+
+-   A **query point** $x_0$: the time at which a prediction is wanted. It's chosen by whoever is asking, not estimated by the algorithm. It can sit on an observation or between two of them.
+-   A **distance**, used only to rank the training observations by how close each one is to $x_0$.
+-   A **count** $k$: how many of the top-ranked observations to keep.
+
+"Nearest" is defined by Euclidean distance. With $p$ predictors, the distance between an observation $x_i$ and the query point is $\sqrt{(x_{i1} - x_{01})^2 + \dots + (x_{ip} - x_{0p})^2}$, measured across the predictors only. With a single predictor, as here, the sum has one term and the square root cancels the square, leaving the gap in time $|x_i - x_0|$. The response plays no part in deciding which points are neighbors (Timbers et al., 2022, §7.5). @fig-knn-number-line shows the ranking step on a short, made-up stretch of record:
+
+```{r}
+#| label: fig-knn-number-line
+#| echo: false
+#| fig-width: 7
+#| fig-height: 2.6
+#| fig-cap: "Choosing neighbors on a time axis. Each observation's distance to the query point is its gap in time. With k = 3, the three smallest gaps are kept; the response values don't enter this step."
+nl_obs <- data.frame(t = c(0.4, 1.1, 1.6, 2.3, 2.6, 3.4, 4.2))
+nl_x0 <- 2.0
+nl_k <- 3
+nl_obs <- nl_obs |>
+  mutate(gap = abs(t - nl_x0),
+         neighbor = rank(gap, ties.method = "first") <= nl_k,
+         arrow_y = 0.35 + 0.18 * rank(gap, ties.method = "first"))
+nl_span <- range(nl_obs$t[nl_obs$neighbor])
+
+ggplot(nl_obs) +
+  annotate("rect", xmin = nl_span[1], xmax = nl_span[2], ymin = -0.25, ymax = 0.25,
+           fill = project_palette[3], alpha = 0.25) +
+  geom_hline(yintercept = 0, color = "grey40", linewidth = 0.4) +
+  geom_segment(aes(x = nl_x0, xend = t, y = arrow_y, yend = arrow_y),
+               data = subset(nl_obs, neighbor), color = "grey30", linewidth = 0.4,
+               arrow = arrow(length = unit(0.08, "inches"))) +
+  geom_point(aes(t, 0, fill = neighbor), shape = 21, size = 4, color = "black") +
+  geom_text(aes(t, -0.5, label = sprintf("%.1f", gap)), size = 3.3) +
+  annotate("point", x = nl_x0, y = 0, shape = 24, size = 4.5, fill = "black") +
+  annotate("text", x = nl_x0, y = 1.1, label = "query~point~italic(x)[0]", parse = TRUE, size = 3.6) +
+  annotate("text", x = -0.15, y = -0.5, label = "gap:",
+           hjust = 1, size = 3.3) +
+  scale_fill_manual(values = c(`TRUE` = project_palette[3], `FALSE` = "white")) +
+  scale_x_continuous(breaks = 0:5) +
+  coord_cartesian(xlim = c(-1.2, 4.6), ylim = c(-0.8, 1.2), clip = "off") +
+  labs(title = "k = 3: Rank by Gap in Time, Keep the Three Closest", x = "Time (years)") +
+  nlt_theme +
+  theme(axis.text.y = element_blank(), axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(), axis.line.y = element_blank(),
+        panel.grid = element_blank(), panel.border = element_blank())
+```
+
+Because $k$ is a count, the neighborhood has no fixed width. It stretches as far as it needs to in order to take in $k$ observations: wider where sampling is sparse, narrower where it's dense, and lopsided near the ends of the record, where there are no observations on one side. @fig-knn-query-points shows this on the Total Phosphorus record, with $k = 14$ (about 14 months of monthly samples) and two query points chosen by hand:
+
+```{r}
+#| label: fig-knn-query-points
+#| echo: false
+#| fig-width: 8
+#| fig-height: 3.6
+#| fig-cap: "Two k-NN predictions on the Total Phosphorus record, k = 14. The shaded band spans the 14 observations nearest in time to each query point (dashed line); the black point is their average, back-transformed from the log scale. Mid-record the neighborhood is centred on the query point. At the start of the record it can only extend forward in time."
+demo_k <- 14
+demo_x0 <- c("Mid-record query point" = 6.0, "Query point at the start of the record" = 0.25)
+
+demo_nb <- bind_rows(lapply(names(demo_x0), function(nm) {
+  x0 <- demo_x0[[nm]]
+  tp_wq |>
+    mutate(panel = nm, x0 = x0, gap = abs(year_frac - x0),
+           neighbor = rank(gap, ties.method = "first") <= demo_k)
+}))
+demo_pred <- demo_nb |>
+  filter(neighbor) |>
+  group_by(panel, x0) |>
+  summarise(lo = min(year_frac), hi = max(year_frac),
+            fit = exp(mean(log(result))), .groups = "drop")
+demo_nb$panel <- factor(demo_nb$panel, levels = names(demo_x0))
+demo_pred$panel <- factor(demo_pred$panel, levels = names(demo_x0))
+
+ggplot() +
+  geom_rect(data = demo_pred, aes(xmin = lo, xmax = hi, ymin = -Inf, ymax = Inf),
+            fill = project_palette[3], alpha = 0.2) +
+  geom_point(data = demo_nb, aes(year_frac, result, fill = neighbor),
+             shape = 21, size = 1.8, color = "grey30") +
+  geom_vline(data = demo_pred, aes(xintercept = x0), linetype = "dashed") +
+  geom_point(data = demo_pred, aes(x0, fit), size = 3.5) +
+  scale_fill_manual(values = c(`TRUE` = project_palette[3], `FALSE` = "white")) +
+  facet_wrap(~panel) +
+  labs(x = "Years since start of record", y = "Phosphorus (mg/L)",
+       title = "Same k, Different Query Points") +
+  nlt_theme
+```
+
+The query point says *where* a prediction is made; $k$ says *how many* observations it averages; distance only decides *which* ones. That's worth being explicit about because k-NN is easy to conflate with k-means clustering: k-means invents $k$ centroids by starting them at random and iteratively updating their positions. k-NN has no centroids and nothing random. For a query point $x_0$, it finds the $k$ training observations closest to it in time (call this neighborhood $N_k(x_0)$) and predicts the plain average of their responses. The fitted curves later in this chapter are built the same way, from 300 query points along a plotting grid, each one an independent lookup-and-average:
 
 $$\hat y(x_0) = \frac{1}{k} \sum_{i \in N_k(x_0)} y_i.$$
 
@@ -74,42 +135,20 @@ This is a lookup-and-average rule applied at prediction time, and it breaks from
 
 [Piecewise regression](piecewise-regression.qmd)'s hinge term, for instance, is just an extra column handed to `lm()` — see [The Regression Framework](regression-framework.qmd) for why that still counts as "linear." k-NN has no linear predictor at all: no coefficients are estimated, just this neighborhood average, recomputed fresh at each query point.
 
-## A diagnostic pass, not an endpoint
-
-That makes this chapter, and [LOESS](loess-smoothing.qmd) after it, a **diagnostic pass** rather than an endpoint — the goal is to see the record's shape clearly enough to decide what to do with it next, not to settle for a curve with no coefficient or p-value attached to it.
-
-**Nonparametric** is the word for that: no functional form is assigned up front, so the fit is genuinely useful for **prediction** — reading off a plausible value at any point in the record — but supports no **inference** at all, since there's no coefficient to attach a standard error or a p-value to.
-
-That diagnostic pass then forks in one of two directions once the shape is clear:
--   If it **resolves into a recognizable family**, it can be handed off to a parametric curve directly and the inferential machinery recovered in one step; that's the move [Post-Diagnosis: Committing to a Parametric Form](parametric-commitment.qmd) makes, fitting Total Phosphorus's rise-and-plateau as a logistic growth curve and comparing it back against the k-NN and LOESS fits that found the shape in the first place.
--  If it **doesn't resolve into anything recognizable** — Total Copper's step-and-spike pattern, covered in [GAM](gam.qmd), is the case where it doesn't — the flexibility has to stay in the model itself instead of being handed off to a fixed curve.
-
-Concentration data is modeled on the log scale throughout this site for the reasons covered in [Transformations](transformations.qmd) — a multiplicative process where variability scales with the mean — and Total Phosphorus is no exception; `log(result)` is used below.
-
-## The shape in the record
-
-```{r}
-#| label: tp-raw-series
-#| message: false
-ggplot(tp_wq, aes(year_frac, result)) +
-  geom_point(alpha = 0.5) +
-  geom_smooth(se = FALSE) +
-  labs(x = "Year", title = "Total Phosphorus — raw scale", y = "Phosphorus (mg/L)") +
-  nlt_theme
-```
-
-An early low, roughly flat stretch, a rise through the middle years, and a plateau at a higher level for the remainder of the record — the shape a logistic curve would produce, though nothing here assumes that form.
+Concentration data is modeled on the log scale throughout this site for the reasons covered in [Transformations](transformations.qmd) — a multiplicative process where variability scales with the mean — and Total Phosphorus is no exception; `log(result)` is used below. Because the neighborhood average is taken on the log scale, back-transforming with `exp()` gives the geometric mean of the neighbors' concentrations, which sits at or below their arithmetic mean.
 
 ## Choosing k: the bias-variance tradeoff
 
-$k$ is the one tuning parameter this method has, and it controls a direct **bias-variance tradeoff**:
--   A small $k$ averages over only a handful of nearby points, so the fitted curve tracks the training data's noise as much as its signal — **low bias, high variance**.
--   A large $k$ averages over a wide neighborhood, smoothing away real curvature along with the noise — **low variance, high bias**.
+$k$ is the one tuning parameter this method has, and it controls a direct **bias-variance tradeoff** (DSCI 571):  
 
-There's no fitted coefficient to inspect here, so the tradeoff has to be shown, not asserted:
+-   A small $k$ averages over only a handful of nearby points, so the fitted curve tracks the training data's noise as much as its signal — **low bias, high variance**.  
+-   A large $k$ averages over a wide neighborhood, smoothing away real curvature along with the noise — **low variance, high bias**. At the limit, $k = n$ predicts the overall mean everywhere and ignores time entirely (Timbers et al., 2022, §7.7).
+
+There's no fitted coefficient to inspect here, so the tradeoff has to be shown, not asserted (@fig-tp-knn-sweep):
 
 ```{r}
-#| label: tp-knn-sweep
+#| label: fig-tp-knn-sweep
+#| fig-cap: "k-NN fits to Total Phosphorus at k = 3, 20 and 60."
 #| message: false
 # 300 evenly spaced query points spanning the record — not real observations,
 # just x-values to predict at so the fitted curve can be drawn continuously.
@@ -135,7 +174,7 @@ ggplot() +
 
 At $k = 3$ the curve is jagged, chasing individual points rather than the underlying rise; at $k = 60$ it's smoothed almost flat, blunting the plateau's onset; $k = 20$ sits between the two, tracking the rise without visibly reacting to single points.
 
-Rather than pick a value by eye, $k$ is chosen by 10-fold cross-validation, minimizing mean squared error on the log scale across held-out folds. `caret` is R's general-purpose package for exactly this kind of workflow — resampling, hyperparameter tuning, and model comparison across dozens of underlying model types through one consistent `train()` interface. `caret::train()` handles the fold-splitting, refit-per-candidate, and averaging that a hand-written loop would otherwise need; `search = "random"` has it sample `tuneLength` candidate values of $k$ at random rather than sweeping a fixed grid:
+Rather than pick a value by eye, $k$ is chosen by 10-fold cross-validation, minimizing root mean squared prediction error (RMSPE) on the log scale, averaged across held-out folds (Timbers et al., 2022, §7.6). `caret` is R's general-purpose package for exactly this kind of workflow — resampling, hyperparameter tuning, and model comparison across dozens of underlying model types through one consistent `train()` interface. `caret::train()` handles the fold-splitting, refit-per-candidate, and averaging that a hand-written loop would otherwise need; `search = "random"` has it sample `tuneLength` candidate values of $k$ at random rather than sweeping a fixed grid:
 
 ```{r}
 #| label: tp-knn-cv
@@ -145,8 +184,9 @@ set.seed(1)
 # 10-fold CV, with candidate hyperparameter values drawn at random rather
 # than swept exhaustively.
 ctrl <- trainControl(method = "cv", number = 10, search = "random")
-# tuneLength = 8 draws 8 random candidate k's to cross-validate, instead of
-# an exhaustive grid over every k from 1 to n. train() does the fold
+# tuneLength = 8 draws 8 candidate k's at random (with replacement) from 1 to
+# about a third of the training-fold size. caret's default grid search would
+# instead try the fixed odd values k = 5, 7, ..., 19. train() does the fold
 # splitting, per-candidate refitting, and error averaging internally
 cv_fit <- train(
   log(result) ~ year_frac, data = tp_wq,
@@ -155,9 +195,9 @@ cv_fit <- train(
   trControl = ctrl
 )
 
-# caret package reports fit quality as root mean squared error (RMSE)
-# on the log scale; squaring it back to
-# MSE keeps this table on the same footing as the rest of the chapter.
+# caret reports fit quality as root mean squared error (RMSE) on the log
+# scale, averaged across folds. Squaring that average gives an MSE-scale
+# summary; it is close to, but not the same as, the fold-averaged MSE.
 cv_fit$results |>
   transmute(k, cv_mse = round(RMSE^2, 4)) |>
   arrange(k)
@@ -173,12 +213,13 @@ fit_tp <- knnreg(log(result) ~ year_frac, data = tp_wq, k = best_k)
 best_k
 ```
 
-Cross-validated error is minimized at $k =$ `r best_k`: small enough to track the rise-and-plateau shape, large enough that no single observation swings the prediction. Though, given that the synthetic data is derived from a log function, there may be overfitting on the data given the meandering plateau of the curve.
+Cross-validated error is minimized at $k =$ `r best_k`: small enough to track the rise-and-plateau shape, large enough that no single observation swings the prediction. The synthetic series is generated from a logistic curve with independent noise, so its true plateau is flat; any meandering in the fitted plateau below is the fit following noise, a sign that the CV-chosen $k$ leans toward the low-bias, high-variance side.
 
 ## The fitted curve
 
 ```{r}
-#| label: tp-knn-fit-plot
+#| label: fig-tp-knn-fit
+#| fig-cap: "k-NN fit to Total Phosphorus at the cross-validated k."
 grid <- grid |> mutate(fit = exp(predict(fit_tp, newdata = grid)))
 
 ggplot() +
@@ -188,7 +229,7 @@ ggplot() +
   nlt_theme
 ```
 
-No confidence band is shown here, because none is available: `knnreg()` produces a fitted value at each point, without a coefficient or a standard error behind it. That rules out a significance test, a slope estimate, or a p-value. This fit is best read as a **prediction-oriented baseline**: the cross-validated MSE above (`r round(min(cv_fit$results$RMSE^2), 4)` on the log scale) is the one number the method offers, and it measures how well the rule predicts points in the test set, not whether the apparent trend is statistically real. That number has no meaningful scale on its own — it's the smallest value in the CV table above, i.e. the error at the best-performing $k$ among the candidates tried. Its use is comparative within this chapter: it's what picked `best_k` over the other candidates, not a figure to be judged in isolation or against another method's fit.
+No confidence band is shown in @fig-tp-knn-fit, because none is available: `knnreg()` produces a fitted value at each point, without a coefficient or a standard error behind it. That rules out a significance test, a slope estimate, or a p-value. This fit is best read as a **prediction-oriented baseline**: the cross-validated MSE above (`r round(min(cv_fit$results$RMSE^2), 4)` on the log scale) is the one number the method offers, and it measures how well the rule predicts held-out observations in the cross-validation folds, not whether the apparent trend is statistically real. That number has no meaningful scale on its own — it's the smallest value in the CV table above, i.e. the error at the best-performing $k$ among the candidates tried. Its use is comparative within this chapter: it's what picked `best_k` over the other candidates, not a figure to be judged in isolation or against another method's fit. Because the same folds were used to pick $k$, the minimum is also a somewhat optimistic estimate of error on new data; a prediction-focused analysis would hold out a separate test set for that reason (Timbers et al., 2022, §7.8). That step is skipped here because the goal is to describe the record, not to report a prediction error.
 
 ## Interpretation
 
@@ -196,20 +237,22 @@ k-NN recovers the rise-and-plateau shape using only a neighborhood-averaging rul
 
 The next chapter fits [LOESS](loess-smoothing.qmd) to the same data with a different local-averaging mechanic — a weighted local regression in place of a flat neighborhood average.
 
-The two methods aren't independent in a strong sense, since both are smoothing the same observations; where their curves agree, what that mainly rules out is the shape being an artifact of k-NN's particular averaging rule rather than a real feature of the record. That's necessary but not sufficient to commit to a parametric curve: the further judgment call — whether the corroborated shape actually resembles a recognizable family like logistic growth, rather than resolving into nothing identifiable — is made separately in [Post-Diagnosis: Committing to a Parametric Form](parametric-commitment.qmd), two chapters ahead.
+The two methods aren't independent in a strong sense, since both are smoothing the same observations; where their curves agree, what that mainly rules out is the shape being an artifact of k-NN's particular averaging rule rather than a real feature of the record. Agreement between the two supports the shape being real; it doesn't supply a significance test for it, which is the gap [Generalized Additive Models](gam.qmd) fills, applied to this record in [Mechanism vs. Shape](mechanism-vs-shape.qmd).
 
 ## Extending this analysis
 
-k-NN's neighborhood average treats every observation in $N_k(x_0)$ equally, whether it sits right at $x_0$ or out at the edge of the window — a point one month away counts exactly as much as a point three years away, as long as both are among the $k$ nearest. A natural refinement is to weight observations by distance instead of averaging them flatly: points closer to $x_0$ count for more, points near the edge of the neighborhood count for less. That's the exact extension [LOESS](loess-smoothing.qmd), next, makes — the same idea of borrowing strength from nearby points, but weighted by distance and fit as a small regression rather than averaged flatly.
+k-NN's neighborhood average treats every observation in $N_k(x_0)$ equally, whether it sits right at $x_0$ or out at the edge of the window — a point one month away counts exactly as much as a point three years away, as long as both are among the $k$ nearest. A natural refinement is to weight observations by distance instead of averaging them flatly: points closer to $x_0$ count for more, points near the edge of the neighborhood count for less. That's the extension [LOESS](loess-smoothing.qmd), next, makes — the same idea of borrowing strength from nearby points, but weighted by distance and fit as a small regression rather than averaged flatly.
 
 That refinement isn't free, though — k-NN keeps a few things LOESS gives up in exchange for the smoother, distance-weighted fit:
 
 -   **Fewer moving parts.** One tuning parameter (`k`) versus LOESS's two (`span` and `degree`).
--   **Cheaper to compute.** A neighborhood average versus a weighted least-squares fit solved fresh at every query point.
--   **Bounded predictions.** Because $\hat y(x_0)$ is simply an average of observed responses in $N_k(x_0)$, it can never fall outside the range of those neighbors. LOESS's local line (or parabola) can overshoot past that range, particularly near the edges of the record where the neighbourhood is one-sided.
+-   **Cheaper to compute.** A neighborhood average versus a weighted least-squares fit solved fresh at every query point. Prediction cost still grows with the size of the training data, since every query searches the stored observations (Timbers et al., 2022, §7.10); at 144 monthly samples that cost is negligible.
+-   **Bounded predictions.** Because $\hat y(x_0)$ is simply an average of observed responses in $N_k(x_0)$, it can never fall outside the range of those neighbors. LOESS's local line (or parabola) can overshoot past that range, particularly near the edges of the record where the neighbourhood is one-sided. The same property means k-NN can't carry a trend forward: near the ends of the record, and past them, the prediction flattens to the average of the outermost $k$ observations, which is one reason it doesn't predict well outside the range of the training data (Timbers et al., 2022, §7.10).
 
 ## References
 
 - UBC Master of Data Science, *DSCI 561: Regression I*.
 - UBC Master of Data Science, *DSCI 562: Regression II*. [Lecture 6: Local Regression](https://ubc-mds.github.io/DSCI_562_regr-2/notes/lecture6_local_regression.html).
-- UBC Master of Data Science, *DSCI 571: Supervised Learning I*. [Lecture 3: k-Nearest Neighbours and SVM RBFs](https://github.com/UBC-MDS/DSCI_571_sup-learn-1/blob/master/lectures/notes/03_kNNs-SVM-RBF.ipynb).
+- UBC Master of Data Science, *DSCI 571: Supervised Learning I*. [Lecture 3: k-Nearest Neighbours and SVM RBFs](https://github.com/UBC-MDS/DSCI_571_sup-learn-1/blob/master/lectures/notes/03_kNNs-SVM-RBF.ipynb), [Lecture 2: ML Fundamentals](https://github.com/UBC-MDS/DSCI_571_sup-learn-1/blob/master/lectures/notes/02_ml-fundamentals.ipynb).
+- Timbers, T., Campbell, T., & Lee, M. (2022). *Data Science: A First Introduction*. CRC Press. [Chapter 7: Regression I: K-nearest neighbors](https://datasciencebook.ca/regression1.html).
+- Esterby, S.R. (1996). Review of methods for the detection and estimation of trends with emphasis on water quality applications. *Hydrological Processes*, 10(2), 127–149.
