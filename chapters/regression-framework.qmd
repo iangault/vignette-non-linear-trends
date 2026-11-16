@@ -9,10 +9,11 @@ In plain terms, every regression model is just a formal way of saying "the respo
 
 The reason to bother getting each of those five parts right, rather than just eyeballing a curve through the points, is that a correctly specified model is what turns a fitted line into a **defensible statistical claim** — a confidence interval, a p-value, a statement that a trend is real and not noise.
 
-The figure below is a simple linear fit, `lm(y ~ x)`, i.e. $y_i = \beta_0 + \beta_1 x_i + \varepsilon_i$:
+@fig-systematic-random is a simple linear fit, `lm(y ~ x)`, i.e. $y_i = \beta_0 + \beta_1 x_i + \varepsilon_i$:
 
 ```{r}
-#| label: systematic-vs-random-mock
+#| label: fig-systematic-random
+#| fig-cap: "Mock data with an OLS line. The line is the systematic component; the vertical gaps are the random component."
 #| message: false
 #| echo: false
 library(ggplot2)

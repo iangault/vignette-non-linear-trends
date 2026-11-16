@@ -28,10 +28,10 @@ The `strucchange` package (Zeileis et al., 2002; `strucchange` documentation) pr
 
 In R's formula notation, the `1` on the right-hand side of `y ~ 1` stands for the intercept term alone — no regressor, just $y_i = \beta_0 + \varepsilon_i$. Fit that model, `lm(y ~ 1)`, on a set of points and it estimates the one coefficient, $\hat\beta_0$, by minimizing the sum of squared residuals $\sum (y_i - \hat\beta_0)^2$.
 
-Differentiate with respect to $\hat\beta_0$, set it to zero, and the minimizer is $\hat\beta_0 = \bar y$ — the sample mean. An intercept-only regression on a subset of points and the arithmetic mean of that subset are the same number, arrived at by the same minimization, just described two different ways — so each segment's mean is legitimately an OLS fit rather than an approximation to one (DSCI 562). `lm(log(result) ~ period)` in the Results section below does the same thing with one more coefficient — a shared baseline plus an offset for the second segment — still fit by minimizing squared residuals, which is why it's still legitimate to call this a regression rather than a two-sample test dressed up as one.
+Differentiate with respect to $\hat\beta_0$, set it to zero, and the minimizer is $\hat\beta_0 = \bar y$ — the sample mean. An intercept-only regression on a subset of points and the arithmetic mean of that subset are the same number, arrived at by the same minimization, just described two different ways — so each segment's mean is legitimately an OLS fit rather than an approximation to one (DSCI 562). `lm(log(result) ~ period)` in the Results section below does the same thing with one more coefficient — a shared baseline plus an offset for the second segment — still fit by minimizing squared residuals, which is why it's still legitimate to call this a regression rather than a two-sample test dressed up as one. @fig-toy-intercept-mean shows the equivalence on eight points.
 
 ```{r}
-#| label: toy-intercept-mean
+#| label: fig-toy-intercept-mean
 #| echo: false
 #| fig-cap: "Eight illustrative points, not monitoring data. With only an intercept, OLS fits a flat line, and the residuals above and below it sum to zero only when the line sits at the sample mean. `lm(y ~ 1)` and `mean(y)` therefore return the same value."
 toy <- data.frame(i = 1:8, y = c(4.2, 5.6, 4.8, 6.1, 5.0, 3.9, 5.4, 4.6))
@@ -72,10 +72,10 @@ two segment means and an indicator for which segment each observation falls in �
 
 $$\hat\tau = \arg\min_{\tau} \; \mathrm{RSS}(\tau), \qquad \mathrm{RSS}(\tau) = \sum_{i \le \tau} (y_i - \bar y_{\le \tau})^2 + \sum_{i > \tau} (y_i - \bar y_{> \tau})^2,$$
 
-$\mathrm{RSS}(\tau)$ is the total squared residual left over once each segment is fit to its own mean — the same quantity OLS always minimizes, just evaluated separately on either side of a candidate split $\tau$. This is the single-break, intercept-only case of the segmented regression whose RSS `breakpoints()` minimizes (`strucchange` documentation).
+$\mathrm{RSS}(\tau)$ is the total squared residual left over once each segment is fit to its own mean — the same quantity OLS always minimizes, just evaluated separately on either side of a candidate split $\tau$. This is the single-break, intercept-only case of the segmented regression whose RSS `breakpoints()` minimizes (`strucchange` documentation). @fig-toy-rss-tau shows the search on a small example.
 
 ```{r}
-#| label: toy-rss-tau
+#| label: fig-toy-rss-tau
 #| echo: false
 #| fig-width: 8.5
 #| fig-height: 4.2
@@ -136,7 +136,8 @@ The situation this method is built for is a suspected step change with an unreco
 ## The shape in the record
 
 ```{r}
-#| label: cond-raw-series
+#| label: fig-cond-raw
+#| fig-cap: "Specific Conductance, log scale, with a default `geom_smooth()` curve for a first look."
 #| message: false
 ggplot(cond, aes(year_frac, log(result))) +
   geom_point(alpha = 0.5) +
@@ -145,7 +146,7 @@ ggplot(cond, aes(year_frac, log(result))) +
   nlt_theme
 ```
 
-Flat, then a step up, with no visible slope change on either side of the jump.
+@fig-cond-raw shows a flat record, then a step up, with no visible slope change on either side of the jump.
 
 ## Is there a break at all
 
@@ -174,10 +175,11 @@ BIC is used here to choose between candidate models, not as a significance test.
 
 ### How many breaks
 
-A **breakpoint** is a position in the record where the regression coefficients change. `breakpoints()` fits the best split for each break count, up to the five that its default minimum segment size allows here, and plotting the fit shows RSS and BIC across those counts (Narasimha, n.d.).
+A **breakpoint** is a position in the record where the regression coefficients change. `breakpoints()` fits the best split for each break count, up to the five that its default minimum segment size allows here, and plotting the fit shows RSS and BIC across those counts (@fig-cond-break-count) (Narasimha, n.d.).
 
 ```{r}
-#| label: cond-break-count
+#| label: fig-cond-break-count
+#| fig-cap: "BIC and RSS for the best fit at each number of breaks."
 bp_mean <- breakpoints(log(result) ~ 1, data = cond)
 plot(bp_mean, main = "Specific Conductance: BIC and RSS by number of breaks")
 ```
@@ -191,10 +193,10 @@ The break count says where the regression changes; the formula says what is allo
 - **`bp_mean`** (`log(result) ~ 1`) has only an intercept, so each segment is a **flat mean** and only the level can change. If the data trended up or down within a segment, that flat line wouldn't track it.
 - **`bp_slope`** (`log(result) ~ year_frac`) gives each segment its own intercept and slope, a non-continuous piecewise-linear model with the break still found by search.
 
-If slopes mattered here, `bp_slope`'s better fit would outweigh its extra-parameter penalty and win on BIC, and the write-up would report two rates the way [Piecewise Regression](piecewise-regression.qmd) does, instead of one level jump.
+If slopes mattered here, `bp_slope`'s better fit would outweigh its extra-parameter penalty and win on BIC, and the write-up would report two rates the way [Piecewise Regression](piecewise-regression.qmd) does, instead of one level jump. @fig-toy-form-bic shows both cases on illustrative series.
 
 ```{r}
-#| label: toy-form-bic
+#| label: fig-toy-form-bic
 #| echo: false
 #| fig-width: 8.5
 #| fig-height: 6
@@ -314,8 +316,11 @@ pct_jump
 
 ### Visualizing the fit
 
+@fig-cond-fitted draws the two segment means over the data, with the estimated break dashed and the size of the jump labelled.
+
 ```{r}
-#| label: cond-fitted-plot
+#| label: fig-cond-fitted
+#| fig-cap: "Mean-shift fit to Specific Conductance on the log scale. Dashed line: estimated break."
 cond_pred <- cond |> mutate(fitted = predict(fit))
 brk_year <- cond$year_frac[brk_idx]
 ci_years <- cond$year_frac[ci$confint[, c("2.5 %", "97.5 %")]]
@@ -357,12 +362,13 @@ Both tests fail to reject their null: the Breusch-Pagan test ($p = 0.286$) finds
 ### Independence
 
 ```{r}
-#| label: cond-acf
+#| label: fig-cond-acf
+#| fig-cap: "Residual autocorrelation of the mean-shift fit. Dashed lines are approximate 95% bounds for independent residuals."
 acf(resid(fit), main = "Specific Conductance — residual autocorrelation")
 Box.test(resid(fit), lag = 1, type = "Ljung-Box")
 ```
 
-Lag-1 autocorrelation is close to zero and the Ljung-Box test finds no evidence against independence ($p = 0.368$).
+Lag-1 autocorrelation is close to zero (@fig-cond-acf) and the Ljung-Box test finds no evidence against independence ($p = 0.368$).
 
 All three assumptions hold, supporting the fit as a defensible basis for the interpretation below.
 

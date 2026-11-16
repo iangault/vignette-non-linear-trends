@@ -182,10 +182,11 @@ A fitted model from any row above is typically a starting point of its own, not 
 
 ## The case studies
 
-Seven analytes, each chosen to demonstrate a specific shape or to act as a control — monthly sampling, single composite site, 2013–2024.
+Seven analytes, each chosen to demonstrate a specific shape or to act as a control — monthly sampling, single composite site, 2013–2024 (@fig-raw-overview).
 
 ```{r}
-#| label: raw-overview
+#| label: fig-raw-overview
+#| fig-cap: "All seven synthetic analytes, monthly samples, raw scale. Y axes differ by panel."
 #| fig-height: 8
 #| echo: false
 ggplot(non_linear_wq |> order_analytes(), aes(date, result)) +

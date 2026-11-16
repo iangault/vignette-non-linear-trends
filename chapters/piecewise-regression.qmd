@@ -38,7 +38,8 @@ A consequence: the hinge-term coefficient $\hat\beta$ comes out of the model in 
 ## The shape in the record
 
 ```{r}
-#| label: tn-raw-series
+#| label: fig-tn-raw-series
+#| fig-cap: "Total Nitrogen, log scale, with a default `geom_smooth()` curve for a first look."
 #| message: false
 
 ggplot(tn, aes(year_frac, log(result))) +
@@ -52,7 +53,7 @@ ggplot(tn, aes(year_frac, log(result))) +
 
 Although the breakpoint is known from the synthetic data, it was not assumed to be known in our analysis: it was estimated from the data using `segmented::segmented()`, seeded from an initial visual read of the series.
 
-That function starts from a baseline model with a single global slope and no breakpoint, then runs an iterative local search around a starting value, **Muggeo's algorithm** (Muggeo, 2008). At each iteration it fits an ordinary linear model containing the hinge term at the current breakpoint plus one extra term that measures the gap the fitted line would need to jump there. It then moves the breakpoint by an amount set by that gap, and repeats until the breakpoint stops moving. The search is local rather than exhaustive, so the starting guess has to be supplied, and it needs to be in the right neighborhood rather than exact; the clearer the break, the less the starting value matters (Muggeo, 2008). Here it is roughly year 6 (`psi = 6`) into the twelve-year record, read off the plot above.
+That function starts from a baseline model with a single global slope and no breakpoint, then runs an iterative local search around a starting value, **Muggeo's algorithm** (Muggeo, 2008). At each iteration it fits an ordinary linear model containing the hinge term at the current breakpoint plus one extra term that measures the gap the fitted line would need to jump there. It then moves the breakpoint by an amount set by that gap, and repeats until the breakpoint stops moving. The search is local rather than exhaustive, so the starting guess has to be supplied, and it needs to be in the right neighborhood rather than exact; the clearer the break, the less the starting value matters (Muggeo, 2008). Here it is roughly year 6 (`psi = 6`) into the twelve-year record, read off @fig-tn-raw-series.
 
 ```{r}
 #| label: tn-segmented-fit
@@ -101,8 +102,11 @@ The breakpoint is estimated at `year_frac` ≈ 5.9 (95% CI 5.18–6.61) — roug
 
 ### Visualizing the fit
 
+@fig-tn-fitted draws the fitted model over the data, with the estimated breakpoint dashed and the post-break rate labelled.
+
 ```{r}
-#| label: tn-fitted-plot
+#| label: fig-tn-fitted
+#| fig-cap: "Continuous piecewise fit to Total Nitrogen on the log scale. Dashed line: estimated breakpoint."
 tn_pred <- tn |> mutate(fitted = predict(seg_tn))
 
 slope2 <- slope(seg_tn)$year_frac["slope2", ]
@@ -147,7 +151,8 @@ A third assumption — **independence** — isn't covered by either test above, 
 ### Independence
 
 ```{r}
-#| label: tn-acf
+#| label: fig-tn-acf
+#| fig-cap: "Residual autocorrelation of the piecewise fit. Dashed lines are approximate 95% bounds for independent residuals."
 acf(resid(seg_tn), main = "Total Nitrogen — residual autocorrelation")
 Box.test(resid(seg_tn), lag = 1, type = "Ljung-Box")
 ```
@@ -156,7 +161,7 @@ Box.test(resid(seg_tn), lag = 1, type = "Ljung-Box")
 
 The **Ljung-Box test** makes that formal: $H_0$ is that the residuals are independent (no autocorrelation at the lags tested), assessed by pooling the squared autocorrelations across those lags into a single statistic — a low p-value means at least one of them is too large to be noise.
 
-Lag-1 autocorrelation is close to zero, and the Ljung-Box test finds no evidence against independence ($p = 0.731$). Nothing here argues for revisiting the segmented fit's standard errors the way [GAMM](gamm.qmd) has to for Dissolved Oxygen.
+Lag-1 autocorrelation is close to zero (@fig-tn-acf), and the Ljung-Box test finds no evidence against independence ($p = 0.731$). Nothing here argues for revisiting the segmented fit's standard errors the way [GAMM](gamm.qmd) has to for Dissolved Oxygen.
 
 ## Interpretation
 

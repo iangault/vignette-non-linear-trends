@@ -26,7 +26,8 @@ None of those chapters show what happens when that same flexibility is offered t
 ## The shape in the record
 
 ```{r}
-#| label: control-raw-series
+#| label: fig-control-raw
+#| fig-cap: "Total Chloride and Total Zinc, raw scale, with a default `geom_smooth()` curve."
 #| message: false
 ggplot(control_wq, aes(year_frac, result)) +
   geom_point(alpha = 0.5) +
@@ -36,7 +37,7 @@ ggplot(control_wq, aes(year_frac, result)) +
   nlt_theme
 ```
 
-Total Chloride climbs steadily with no visible bend; Total Zinc scatters around a flat level with no discernible pattern. Neither shape suggests a break, a plateau, or any structure a straight line wouldn't capture.
+In @fig-control-raw, Total Chloride climbs steadily with no visible bend; Total Zinc scatters around a flat level with no discernible pattern. Neither shape suggests a break, a plateau, or any structure a straight line wouldn't capture.
 
 ## Fitting linear and nonlinear models to each
 
@@ -89,7 +90,8 @@ Both analytes tell the same story: the smooth term's effective degrees of freedo
 The difference between the two analytes shows up in whether that line means anything. For **Total Chloride**, the smooth term is significant and deviance explained is substantial (`r round(summary(fits_chloride$gam)$dev.expl*100,1)`%) — a real trend, just a straight one. For **Total Zinc**, the smooth term is not statistically distinguishable from flat ($p =$ `r round(summary(fits_zinc$gam)$s.table[,4], 3)`) and deviance explained is negligible (`r round(summary(fits_zinc$gam)$dev.expl*100,1)`%) — there's a line to draw through the noise, same as there would be through any random scatter, but nothing about the data supports treating it as a real trend.
 
 ```{r}
-#| label: control-fit-plot
+#| label: fig-control-fit
+#| fig-cap: "Linear (solid) and GAM (dashed) fits to Total Chloride and Total Zinc."
 grid_chloride <- data.frame(year_frac = seq(min(chloride_wq$year_frac), max(chloride_wq$year_frac), length.out = 200))
 grid_zinc <- data.frame(year_frac = seq(min(zinc_wq$year_frac), max(zinc_wq$year_frac), length.out = 200))
 
@@ -118,7 +120,7 @@ ggplot() +
   theme(legend.position = "right")
 ```
 
-The dashed GAM line sits almost exactly on top of the solid linear line in both panels — visual confirmation of the edf ≈ 1 result above. The GAM was free to bend and chose not to, in both directions: it didn't flatten Total Chloride's real trend, and it didn't manufacture curvature out of Total Zinc's noise.
+In @fig-control-fit, the dashed GAM line sits almost exactly on top of the solid linear line in both panels — visual confirmation of the edf ≈ 1 result above. The GAM was free to bend and chose not to, in both directions: it didn't flatten Total Chloride's real trend, and it didn't manufacture curvature out of Total Zinc's noise.
 
 ## Model diagnostics
 

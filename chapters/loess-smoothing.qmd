@@ -163,10 +163,11 @@ resid_sd <- mapply(function(sp, deg) {
 data.frame(span_degree_grid, resid_sd = round(resid_sd, 4))
 ```
 
-Residual spread rises as `span` widens and drops as `degree` increases within a fixed span — both expected, since a narrower neighborhood and a higher local order each add flexibility. This is the pattern training error follows for any model: it keeps falling as the model gets more flexible, including when the extra flexibility only fits noise, so it can't pick the setting on its own (DSCI 571, Lecture 2). The fitted curves need to be seen side by side:
+Residual spread rises as `span` widens and drops as `degree` increases within a fixed span — both expected, since a narrower neighborhood and a higher local order each add flexibility. This is the pattern training error follows for any model: it keeps falling as the model gets more flexible, including when the extra flexibility only fits noise, so it can't pick the setting on its own (DSCI 571, Lecture 2). @fig-tp-loess-grid shows the fitted curves side by side:
 
 ```{r}
-#| label: tp-loess-span-degree-grid
+#| label: fig-tp-loess-grid
+#| fig-cap: "LOESS fits to Total Phosphorus by span (columns) and degree (rows), with pointwise 95% bands."
 #| message: false
 fit_curves <- do.call(rbind, Map(function(sp, deg) {
   m <- loess(log(result) ~ year_frac, data = tp_wq, span = sp, degree = deg)
@@ -234,7 +235,8 @@ grid <- grid |> mutate(fit = exp(predict(fit_tp_loess, newdata = grid)))
 ## Comparing the two local fits
 
 ```{r}
-#| label: tp-loess-vs-knn
+#| label: fig-tp-loess-vs-knn
+#| fig-cap: "LOESS and k-NN fits to Total Phosphorus at their selected settings."
 # k = 14, the cross-validated best_k from the k-NN chapter, refit here so
 # this comparison uses the same fitted model rather than an arbitrary k
 knn_fit <- caret::knnreg(log(result) ~ year_frac, data = tp_wq, k = 14)
@@ -253,7 +255,7 @@ ggplot() +
   theme(legend.position = "right")
 ```
 
-The two curves track the same rise-and-plateau shape closely, but LOESS's is visibly smoother. Most of that comes from the weights: a point enters and leaves a LOESS neighborhood gradually as its weight rises from or falls to zero, while a k-NN neighborhood swaps whole points in and out as the query point moves, so its curve steps. The LOESS neighborhood here is also much wider, 72 points against 14.
+The two curves in @fig-tp-loess-vs-knn track the same rise-and-plateau shape closely, but LOESS's is visibly smoother. Most of that comes from the weights: a point enters and leaves a LOESS neighborhood gradually as its weight rises from or falls to zero, while a k-NN neighborhood swaps whole points in and out as the query point moves, so its curve steps. The LOESS neighborhood here is also much wider, 72 points against 14.
 
 ## Why LOESS stops short of a significance test
 
