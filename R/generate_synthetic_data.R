@@ -99,15 +99,31 @@ tp <- make_analyte("Total Phosphorus", function(t) {
   lo + (hi - lo) / (1 + exp(-(t - 5) / 1.2))
 })
 
-# Dissolved Oxygen: seasonal cycle (annual period) plus a slow decline, with
-# AR(1)-autocorrelated noise (phi = 0.5) rather than the i.i.d. noise every
-# other analyte uses — adjacent months are more alike than independent draws
-# would produce, standing in for real serial correlation in a monthly
-# monitoring series. Drives the GAMM section: a naive GAM assumes independent
-# residuals, and checking that assumption, then refitting with an explicit
-# AR(1) correlation structure, is the point of that chapter.
-do_log_mean <- function(t) log(9) - 0.01 * t + 0.25 * sin(2 * pi * t)
-do_ar_noise <- as.numeric(arima.sim(model = list(ar = 0.5), n = nrow(sampling_grid), sd = 0.0433))
+# Dissolved Oxygen: seasonal cycle (annual period) on a trend that is stable
+# for the first ~5 years, then bends smoothly into a decline of ~3%/year
+# (a softplus ramp centred at year 5.5, width 0.7), with AR(1)-autocorrelated
+# noise (phi = 0.6) rather than the i.i.d. noise every other analyte uses —
+# adjacent months are more alike than independent draws would produce,
+# standing in for real serial correlation in a monthly monitoring series.
+# Drives the GAMM section: a naive GAM assumes independent residuals and fits
+# the correlated runs as extra wiggles (false rises and falls); refitting with
+# an explicit AR(1) correlation structure recovers the stable-then-declining
+# shape.
+do_log_mean <- function(t) {
+  log(9) - 0.03 * 0.7 * log1p(exp((t - 5.5) / 0.7)) + 0.25 * sin(2 * pi * t)
+}
+# Advance the shared RNG stream exactly as the original DO draw did, so the
+# analytes generated after this one (Chloride, Zinc, Copper) keep their noise.
+invisible(arima.sim(model = list(ar = 0.5), n = nrow(sampling_grid), sd = 0.0433))
+# DO's own noise comes from a separate seed, then the shared stream is restored.
+# Seed 83 was picked from a seed search as a draw where the naive GAM's
+# over-wiggling is clear and the AR(1) GAMM's residuals pass Ljung-Box checks.
+# Innovation sd is set so the marginal noise sd is close to the original series'.
+rng_state <- .Random.seed
+set.seed(83)
+do_ar_noise <- as.numeric(arima.sim(model = list(ar = 0.6), n = nrow(sampling_grid),
+                                    sd = 0.0433 * sqrt(0.75) / sqrt(1 - 0.6^2)))
+assign(".Random.seed", rng_state, envir = globalenv())
 do_ <- sampling_grid %>%
   mutate(
     analyte = "Dissolved Oxygen",

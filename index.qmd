@@ -96,6 +96,69 @@ In **curve-fitting**, which is how "nonparametric" is used everywhere else on th
 
 Model choice changes what gets reported and what action follows. A plateau misread as ongoing growth can trigger a treatment upgrade or permit renegotiation nobody actually needed. A step change misread as a gradual trend sends the investigation toward the wrong cause — a slow watershed process instead of the operational event or permit change that actually happened — and delays the fix. And a flexible model fit to pure noise manufactures a trend that isn't there, triggering escalation over nothing. The reverse failure carries its own cost: real change dismissed as noise because the model wasn't flexible enough to see it. Guarding against both means using the model whose complexity is actually supported by the data — no more, no less — and being able to explain that choice in plain terms to someone who isn't a statistician, since a result nobody can sanity-check doesn't get trusted enough to act on.
 
+## How the pieces fit together
+
+The methods on this site come from several fields (@fig-site-concepts). Regression supplies the framework: linear models, transformations, link functions, and piecewise fits with a breakpoint as a parameter. Nonparametric machine learning supplies local fits such as k-NN and LOESS, which show a shape without fixing its form. Time-series methods supply changepoint search and the tools for autocorrelated noise. The GAM combines regression and smoothing, and borrows its fitting method, REML, from mixed models. A Bayesian reading of the same fit gives its intervals. The GAMM adds a model for correlated residuals. The last chapter brings these together as a question of model choice, and every method is used for inference on the observed record rather than forecasting.
+
+```{mermaid}
+%%| label: fig-site-concepts
+%%| fig-cap: "The fields this site draws on and how they combine. Grey: regression. Yellow: nonparametric machine learning. Teal: time series. Purple: mixed models. Dashed: a Bayesian reading of the GAM fit, used for its intervals rather than as a separate model. Green: how a model is chosen and what the inference covers."
+%%{init: {"flowchart": {"subGraphTitleMargin": {"top": 6, "bottom": 18}}}}%%
+flowchart TB
+  subgraph REG["Regression"]
+    R1["OLS and GLMs:<br/>linear in the parameters"]
+    R2["Transformations and<br/>link functions"]
+    R3["Piecewise regression:<br/>a breakpoint as a parameter"]
+  end
+  subgraph NP["Nonparametric machine learning"]
+    N1["k-NN and LOESS:<br/>local fits, no fixed form"]
+    N2["Smoothing parameter:<br/>bias vs. variance"]
+  end
+  subgraph TS["Time series"]
+    T1["Changepoint detection:<br/>a level shift found by search"]
+    T2["Autocorrelation:<br/>ACF, PACF, AR(1)"]
+  end
+  subgraph MIX["Mixed models"]
+    M1["Random effects<br/>and REML"]
+  end
+  subgraph BAY["Bayesian reading"]
+    B1["Penalty as a prior;<br/>posterior intervals"]
+  end
+  GAM(["<b>GAM</b><br/>penalized smooth terms"])
+  GAMM(["<b>GAMM</b><br/>GAM with correlated residuals"])
+  CHOOSE["<b>Choosing a model</b><br/>the question, the process,<br/>how far the answer reaches"]
+  GOAL["Inference on the observed record,<br/>not forecasting"]
+  REG --> GAM
+  NP --> GAM
+  MIX --> GAM
+  BAY -.-> GAM
+  GAM --> GAMM
+  MIX --> GAMM
+  TS --> GAMM
+  REG --> CHOOSE
+  GAMM --> CHOOSE
+  CHOOSE --> GOAL
+  classDef reg fill:#EEF0F2,stroke:#57717C,stroke-width:1.5px,color:#1a1a1a
+  classDef np fill:#FBF1D9,stroke:#C9A23F,stroke-width:1.5px,color:#1a1a1a
+  classDef mix fill:#ECE6F3,stroke:#8A6FB0,stroke-width:1.5px,color:#1a1a1a
+  classDef ts fill:#DDECEF,stroke:#5F97A4,stroke-width:1.5px,color:#1a1a1a
+  classDef bay fill:#FFFFFF,stroke:#9AA5AB,stroke-width:1.5px,stroke-dasharray:4 3,color:#3a3a3a
+  classDef inf fill:#E3F0E1,stroke:#5E9A5A,stroke-width:1.5px,color:#1a1a1a
+  classDef model fill:#FFFFFF,stroke:#1a1a1a,stroke-width:2.5px,color:#1a1a1a
+  class R1,R2,R3 reg
+  class N1,N2 np
+  class T1,T2 ts
+  class M1 mix
+  class B1 bay
+  class GAM,GAMM model
+  class CHOOSE,GOAL inf
+  style REG fill:#F7F8F9,stroke:#57717C
+  style NP fill:#FDF8EC,stroke:#C9A23F
+  style TS fill:#EEF6F7,stroke:#5F97A4
+  style MIX fill:#F6F2FA,stroke:#8A6FB0
+  style BAY fill:#FAFAFA,stroke:#9AA5AB,stroke-dasharray:4 3
+```
+
 ## Start from the goal, not the method
 
 The default reflex, faced with any time series, is to fit a straight line through it. That reflex is itself a form of model misspecification whenever the record isn't actually a straight line. The water-quality trend literature puts the objective first: the suitable method depends on how trend is defined, how the other sources of variability are modelled, the characteristics of the data, and the objectives of the monitoring program (Esterby, 1996). Environmental modelling more broadly starts the same way, with the purpose of the model (Kelly et al., 2013). This site offers a set of starting points, one per goal, each demonstrated on a case study built to need it, rather than one recommended method. The table below maps the goal to the chapter.
@@ -135,7 +198,7 @@ ggplot(non_linear_wq |> order_analytes(), aes(date, result)) +
 - **Total Nitrogen** — flat, then a genuine slope break. Piecewise/segmented regression: two slopes, one knot, no discontinuity.
 - **Specific Conductance** — a level jump at an unknown location. Changepoint detection: the same "something shifted" question as Total Nitrogen, but without being told where.
 - **Total Phosphorus** — a rise that levels into a plateau. Used twice, for k-nearest-neighbors and LOESS on the same data, as a direct side-by-side of two local methods, then revisited in [Mechanism vs. Shape](chapters/mechanism-vs-shape.qmd), where it is fit as a logistic curve, a piecewise model and a GAM, and the GAM reports when the rise happened, how fast it was, and what the record can say about whether it is still rising.
-- **Dissolved Oxygen** — a seasonal cycle riding on a longer-term trend, with residuals correlated month to month. GAMM: whether the trend's significance survives once that correlation is modeled explicitly.
+- **Dissolved Oxygen** — a seasonal cycle riding on a longer-term trend, with residuals correlated month to month. GAMM: whether the trend's shape and significance survive once that correlation is modeled explicitly.
 - **Total Chloride** — a genuine, unremarkable straight-line trend. A control: the case where the simple linear model is already the right answer.
 - **Total Zinc** — pure noise, no real trend. The other control: the guard against a flexible model manufacturing a trend that isn't there.
 - **Total Copper** — step-like and non-monotonic: up, up again into a brief spike, back down, further down, then a partial recovery. GAM: a shape with no periodic or polynomial pattern for a hand-built OLS feature to fall back on.

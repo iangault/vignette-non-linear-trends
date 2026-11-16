@@ -10,6 +10,8 @@ library(dplyr)
 library(ggplot2)
 library(mgcv)
 library(segmented)
+library(gratia)
+library(patchwork)
 source("R/utils.R")
 non_linear_wq <- readr::read_csv("data/synthetic/non_linear_wq.csv", show_col_types = FALSE)
 tp_wq <- non_linear_wq |> filter(analyte == "Total Phosphorus")
@@ -39,12 +41,12 @@ None of these is new to water-quality trend analysis. Hirsch et al. (1991) set o
 
 When the question and the process are both well understood, they narrow the choice and give the parameters a physical reading that can be checked. When the process is not well understood, the safer choice is a model that describes the record without claiming to know what produced it.
 
-Crossing the third input (how far the answer has to reach) with how well the process is known gives four situations that helps descide on an approach:
+Crossing the third input (how far the answer has to reach) with how well the process is known gives four situations that help decide on an approach:
 
 |  | **Process unknown:** describe the shape | **Process known and checkable:** model the process |
 |---|---|---|
 | **Within the record** (what happened) | When the record changed, how fast, and whether it is still changing. **Model:** GAM. **Example:** [Total Phosphorus](#case-tp) | The effect of a documented event, such as a change in slope at a known date. **Model:** [Piecewise Regression](piecewise-regression.qmd) with the break fixed at that date |
-| **Beyond the record** (forecasting) | The over-modelling trap: a curve chosen because it fits will still project, but its forecast is the formula's assumption, not the process. Don't forecast; report where the record ends. **Example:** [Total Phosphorus as a logistic curve](#tp-past-record) | Fit the model the process implies, check it against held-out data, and project with stated limits. **Model:** first-order decay. **Example:** [plume](#case-plume) |
+| **Beyond the record** (forecasting) | The over-modelling trap: a curve chosen because it fits the data, but its forecast will be dictated by the formula's assumption, and that may not match the process. Don't forecast with misleading model. **Example:** [Total Phosphorus as a logistic curve](#tp-past-record) | Fit the model the process implies, check it against held-out data, and project with stated limits. **Model:** first-order decay. **Example:** [plume](#case-plume) |
 
 A known process can also be checked, because it makes claims the record could fail. First-order decay after source removal says the log-scale record should be a straight line, and that a rate fitted to the early years should predict the later ones; the [plume](#case-plume) is tested on both. A curve chosen because it looks like the plot has no such test. It was picked for fitting the shape, so fitting the shape is no evidence for it.
 
@@ -73,7 +75,8 @@ confint(fit_piecewise)
 ```
 
 ```{r}
-#| label: tp-family-plot
+#| label: fig-tp-family
+#| fig-cap: "Total Phosphorus with three fits on the log scale, back-transformed to mg/L: a logistic growth curve, a two-breakpoint piecewise linear regression and a GAM."
 tp_grid <- data.frame(year_frac = seq(min(tp_wq$year_frac), max(tp_wq$year_frac), length.out = 300))
 family_curves <- bind_rows(
   data.frame(model = "Logistic growth curve", year_frac = tp_grid$year_frac,
@@ -107,9 +110,9 @@ ceiling_mgl <- exp(c(logi[["ceiling"]], logi_ci["ceiling", ]))
 floor_mgl <- exp(logi[["floor"]])
 ```
 
-The three fits are close: their AICs span `r sprintf("%.1f", aic_spread)` units, which is too small to give preference to one model over another. Their curves overlap across most of the record.
+The three fits are close: their AICs span `r sprintf("%.1f", aic_spread)` units, which is too small to give preference to one model over another. Their curves overlap across most of the record (@fig-tp-family).
 
-They disagree on what happened. The logistic curve reports a ceiling of `r round(ceiling_mgl[1], 3)` mg/L (95% CI `r round(ceiling_mgl[2], 3)`–`r round(ceiling_mgl[3], 3)`), which reads like a limit the concentration cannot pass. The piecewise model reports two breakpoints, at year `r psi_txt[1, 1]` (95% CI `r psi_txt[1, 2]`–`r psi_txt[1, 3]`) and year `r psi_txt[2, 1]` (95% CI `r psi_txt[2, 2]`–`r psi_txt[2, 3]`), which read like the dates of two events: something started, and something finished. Both sets of intervals are narrow. But each model fits the record as well as the other, and as well as a GAM that claims neither a ceiling nor any events. The intervals measure how precisely each parameter is located **if** that model is the right one. They are not evidence that a ceiling exists or that anything happened on those dates.
+They disagree on what happened. The logistic curve reports a ceiling of `r round(ceiling_mgl[1], 3)` mg/L (95% CI `r round(ceiling_mgl[2], 3)`–`r round(ceiling_mgl[3], 3)`), which reads like a limit the concentration cannot pass. The piecewise model reports two breakpoints, at year `r psi_txt[1, 1]` (95% CI `r psi_txt[1, 2]`–`r psi_txt[1, 3]`) and year `r psi_txt[2, 1]` (95% CI `r psi_txt[2, 2]`–`r psi_txt[2, 3]`), which read like the dates of two events: something started, and something finished. Both sets of intervals are narrow. But each model fits the record as well as the other, and as well as a GAM that claims neither a ceiling nor any events. The intervals measure how precisely each parameter is located **if** that model is the right one. They are not evidence that a ceiling exists or that anything happened on those dates. A model that fits well yields small parameter variances whether or not other parameter sets, or other models, fit nearly as well, because the calculation assumes the fitted model is correct (Beven, 2006).
 
 Different processes producing the same curve is known as **equifinality** (Beven, 2006), and it is the general problem with fitting a process-based curve to a record whose process is unknown. Each model's parameters describe a story, and the data cannot tell the stories apart. Reporting a ceiling or a pair of event dates would report a process nobody established.
 
@@ -118,7 +121,7 @@ Different processes producing the same curve is known as **equifinality** (Beven
 
 The Total Phosphorus series on this site is synthetic, and it was generated from a logistic curve on the log scale: a floor of 0.02 mg/L, a ceiling of 0.08 mg/L, and a rise centred on year 5 (`R/generate_synthetic_data.R`). The logistic fit above recovers those values closely, with a floor of `r round(floor_mgl, 3)` mg/L, a ceiling of `r round(ceiling_mgl[1], 3)` mg/L and a midpoint at year `r sprintf("%.1f", logi[["mid"]])`.
 
-Even here, where the logistic curve is the true one (albeit, fake), the piecewise model and the GAM fit the record as well, so the record alone could not have confirmed the logistic form. A real monitoring record has no generator to check against, and a logistic curve would fit it just as convincingly whether or not any ceiling process existed.
+Even here, where the logistic curve is the true one (in a synthetic record), the piecewise model and the GAM fit the record as well, so the record alone could not have confirmed the logistic form. A real monitoring record has no generator to check against, and a logistic curve would fit it just as convincingly whether or not any ceiling process existed.
 :::
 
 ## Piecewise or GAM: different questions, not rivals
@@ -135,7 +138,7 @@ Inside the record, the three fits draw nearly the same curve. What separates the
 
 **A piecewise model reports dates.** It estimates breakpoints with confidence intervals and a slope between each pair (Muggeo, 2008), and all of that assumes the breaks are real. Fit to a smooth rise like Total Phosphorus, it still returns breakpoints with narrow intervals, as above. They mark where the model joined two straight pieces, not when anything changed.
 
-**A GAM reports rates.** It flags the stretches where the local slope differs from zero. Where a stretch begins depends on how much data surrounds it, how noisy that data is, and which interval is used (simultaneous intervals flag shorter stretches than the pointwise ones used here; Simpson, 2018). So a GAM supports "rising over roughly these years, at about this rate", not "the change began in year X".
+**A GAM reports rates.** It flags the stretches where the local slope differs from zero. Where a stretch begins depends on how much data surrounds it, how noisy that data is, and which interval is used (the simultaneous interval used here flags shorter stretches than a pointwise one would; Simpson, 2018). So a GAM supports "rising over roughly these years, at about this rate", not "the change began in year X".
 
 For Total Phosphorus there is no known event, and the questions are whether the record is still rising and how fast it rose. Both are rates, so the GAM answers them without introducing dates the record cannot support.
 
@@ -176,17 +179,18 @@ proj_curves |>
   dplyr::select(model, est, lwr, upr)
 ```
 
-The printout is each model's projected level five years after the last sample: `est` is the estimate in mg/L, and `lwr` and `upr` are the ends of its 95% band. The figure shows the full curves.
+The printout is each model's projected level five years after the last sample: `est` is the estimate in mg/L, and `lwr` and `upr` are the ends of its 95% band. @fig-tp-projection shows the full curves.
 
 ```{r}
-#| label: tp-projection-plot
+#| label: fig-tp-projection
+#| fig-cap: "The logistic and GAM fits to Total Phosphorus, extended five years past the last sample (dotted line), with pointwise 95% bands. Solid: within the record. Dashed: projected. Log scale."
 ggplot(proj_curves, aes(year_frac)) +
   geom_ribbon(aes(ymin = lwr, ymax = upr, fill = model), alpha = 0.15) +
   geom_line(aes(y = est, color = model, linetype = observed_range), linewidth = 1) +
   geom_point(data = tp_wq, aes(year_frac, result), alpha = 0.3, color = "grey40") +
   geom_vline(xintercept = record_end, linetype = "dotted", color = "grey30") +
   scale_y_log10() +
-  # same colors as the three-fit figure above
+  # same colors as @fig-tp-family
   scale_color_manual(values = c(GAM = "#F8766D", `Logistic growth curve` = "#00BA38"), aesthetics = c("color", "fill")) +
   scale_linetype_manual(values = c(`TRUE` = "solid", `FALSE` = "dashed"), breaks = c(TRUE, FALSE),
                         labels = c(`TRUE` = "within record", `FALSE` = "projected"), name = NULL) +
@@ -205,7 +209,7 @@ logi_end <- at_end("Logistic growth curve", record_end); logi_5 <- at_end("Logis
 fmt <- function(r) sprintf("%.3f mg/L (95%% band %.3f–%.3f)", r$est, r$lwr, r$upr)
 ```
 
-Inside the record the two curves agree. Past it, they part ways:
+Inside the record the two curves agree (@fig-tp-projection). Past it, they part ways:
 
 - **The GAM breaks down.** A penalized smooth is estimated from the data around each point, and past the last sample there is none. The thin plate smooth's penalty acts on curvature, so with no data to bend it, the curve carries on roughly along its final slope on the log scale. The record ends on a small upturn, and the GAM carries it forward: from `r fmt(gam_end)` at the last sample to `r fmt(gam_5)` five years later. The widening band is the useful part of that output. It shows that the GAM has no information about those years.
 - **The logistic curve stays flat by assumption.** It projects `r fmt(logi_5)` five years out, the same to three decimal places as its `r sprintf("%.3f", logi_end$est)` mg/L at the last sample. The narrow band does not come from the data showing that the plateau will hold. It comes from the formula, which cannot rise above its ceiling, and it covers uncertainty in the fitted parameters only, not any change in the process. A phosphorus plateau has no ceiling behind it in environmental chemistry. It reflects a balance between loading, flow, sediment release and uptake, and that balance shifts when land use, discharges or the monitoring program change. Reporting the ceiling as the future level asserts that the balance will hold, which nothing in the record shows.
@@ -224,7 +228,7 @@ Neither projection is one this site would report; the next section describes the
 
 ## Reporting Total Phosphorus without claiming a process
 
-The question still needs an answer. The GAM from the figure above gives one without choosing between the stories. It uses the same approach as the Total Copper case study: the local slope of the smooth and its confidence interval at each point mark each stretch of the record as rising, falling, or flat.
+The question still needs an answer. The GAM from @fig-tp-family gives one without choosing between the stories. It uses the same approach as the Total Copper case study: the local slope of the smooth and its confidence interval at each point mark each stretch of the record as rising, falling, or flat.
 
 ```{r}
 #| label: tp-gam-fit
@@ -233,10 +237,11 @@ summary(fit_tp_gam)$s.table
 
 The printout is the test on the smooth term: `edf` is its effective degrees of freedom, a measure of how much the curve bends, and `p-value` tests whether it differs from a flat line.
 
-Every interval below rests on the residuals being independent. [Generalized Additive Mixed Models](gamm.qmd) showed that a regularly sampled record can fail that check without the fit giving any sign of it, so it comes first here.
+Every interval below rests on the residuals being independent. [Generalized Additive Mixed Models](gamm.qmd) showed that a regularly sampled record can fail that check without the fit giving any sign of it, so it comes first here (@fig-tp-gam-acf).
 
 ```{r}
-#| label: tp-gam-acf
+#| label: fig-tp-gam-acf
+#| fig-cap: "Residual autocorrelation of the Total Phosphorus GAM. The dashed lines are approximate 95% bounds for independent residuals."
 acf(resid(fit_tp_gam), main = "Total Phosphorus GAM: residual autocorrelation")
 tp_box <- Box.test(resid(fit_tp_gam), lag = 1, type = "Ljung-Box")
 tp_box
@@ -244,37 +249,46 @@ tp_box
 
 Lag-1 autocorrelation is `r round(acf(resid(fit_tp_gam), plot = FALSE)$acf[2], 2)`, and the Ljung-Box test finds no evidence against independence ($p$ = `r sprintf("%.2f", tp_box$p.value)`). Unlike Dissolved Oxygen, this record needs no correlation structure, and the GAM's intervals can be read as they stand.
 
-The next chunk computes the local slope of the smooth at each point on a fine grid, as in the [GAM](gam.qmd) chapter. The curve is evaluated just either side of each point, and the difference gives the slope and its standard error. A point is labelled rising or falling when its 95% interval excludes zero, and flat otherwise. The printout gives the first and last years labelled rising.
+The next chunk computes the local slope of the smooth at each point on a fine grid with `gratia::derivatives()` (Simpson, 2024), as in the [GAM](gam.qmd) chapter, with a 95% simultaneous interval: one that covers the slope at all grid points at once, rather than each point on its own. A point is labelled rising or falling when its interval excludes zero, and flat otherwise. The printout gives the simultaneous critical value, which takes the place of 1.96, and the first and last years labelled rising.
 
 ```{r}
 #| label: tp-gam-derivative
-h <- 1e-3
-# same finite-difference local slope as the GAM chapter, on the TP grid
-Xp_plus  <- predict(fit_tp_gam, newdata = data.frame(year_frac = tp_grid$year_frac + h), type = "lpmatrix")
-Xp_minus <- predict(fit_tp_gam, newdata = data.frame(year_frac = tp_grid$year_frac - h), type = "lpmatrix")
-D <- (Xp_plus - Xp_minus) / (2 * h)
-deriv <- as.numeric(D %*% coef(fit_tp_gam))
-se <- sqrt(rowSums((D %*% vcov(fit_tp_gam)) * D))
+set.seed(1) # the simultaneous critical value comes from posterior simulation
+tp_deriv <- derivatives(
+  fit_tp_gam,
+  select = "s(year_frac)",
+  data = tp_grid,
+  type = "central",
+  interval = "simultaneous", # cover every grid point at once, not each point on its own
+  n_sim = 10000              # posterior draws used to find the critical value
+)
 
 pred <- predict(fit_tp_gam, newdata = tp_grid, se.fit = TRUE)
 tp_grid <- tp_grid |>
   mutate(
     fit = exp(pred$fit),
+    # rising/falling only where the whole simultaneous interval clears zero
     trend = case_when(
-      deriv - 1.96 * se > 0 ~ "rising",
-      deriv + 1.96 * se < 0 ~ "falling",
+      tp_deriv$.lower_ci > 0 ~ "rising",
+      tp_deriv$.upper_ci < 0 ~ "falling",
       TRUE ~ "flat"
     )
   )
 
 rising <- tp_grid |> filter(trend == "rising")
-c(rise_start = min(rising$year_frac), rise_end = max(rising$year_frac))
+c(crit = unique(tp_deriv$.crit), rise_start = min(rising$year_frac), rise_end = max(rising$year_frac))
 ```
 
-The slope is on the log scale, so it converts to a percent change per year. This chunk averages it over two stretches: the years labelled rising, and everything after them. Each row of the printout is a slope in %/year with its 95% interval.
+The slope is on the log scale, so it converts to a percent change per year. This chunk averages it over two stretches: the years labelled rising, and everything after them. An average over a stretch needs the covariance between the slopes at different dates, so it is computed from the model's prediction matrix: the curve evaluated just either side of each grid point gives each slope as a linear combination of the coefficients, and averaging those combinations gives the stretch's slope and its standard error. Each row of the printout is a slope in %/year with its 95% interval.
 
 ```{r}
 #| label: tp-gam-rates
+# finite-difference slope at each grid point, as a linear combination of the coefficients
+h <- 1e-3
+Xp_plus  <- predict(fit_tp_gam, newdata = data.frame(year_frac = tp_grid$year_frac + h), type = "lpmatrix")
+Xp_minus <- predict(fit_tp_gam, newdata = data.frame(year_frac = tp_grid$year_frac - h), type = "lpmatrix")
+D <- (Xp_plus - Xp_minus) / (2 * h)
+
 # average of the local slope over a stretch of the grid, with its SE, as %/year
 period_slope <- function(rows) {
   a <- colMeans(D[rows, , drop = FALSE])
@@ -287,29 +301,62 @@ plateau_slope <- period_slope(tp_grid$year_frac > max(rising$year_frac))
 rbind(rise = rise_slope, since_rise = plateau_slope)
 ```
 
-The figure colours the fitted curve by those labels.
+@fig-tp-gam-trend uses the same two-panel layout as the [GAM](gam.qmd#visualizing-significant-stretches) and [GAMM](gamm.qmd) chapters (after Simpson, 2018, Figures 9 and 10). The top panel is the fitted median in mg/L with a 95% simultaneous band, built as in the GAM chapter: the critical value replacing 1.96 is the 95th percentile, across posterior draws of the coefficients, of the largest gap between the simulated and the fitted curve in standard errors. The bottom panel is the local slope from the chunk above, converted to percent per year, with its simultaneous interval.
 
 ```{r}
-#| label: tp-gam-derivative-plot
-tp_seg <- tp_grid |>
-  mutate(year_frac_end = lead(year_frac), fit_end = lead(fit)) |>
-  filter(!is.na(year_frac_end))
+#| label: fig-tp-gam-trend
+#| fig-height: 7
+#| fig-cap: "Total Phosphorus GAM. Top: the fitted median with its 95% simultaneous band, coloured where the trend is significantly rising (orange) or falling (blue). Bottom: the rate of change, in percent per year, with its 95% simultaneous interval; a stretch is coloured where that interval excludes zero."
+# simultaneous band on the level (Simpson, 2018, Appendix 1), intercept included so it converts to mg/L
+Xp <- predict(fit_tp_gam, newdata = tp_grid, type = "lpmatrix")
+se <- as.vector(pred$se.fit)
+set.seed(1) # the critical value comes from posterior simulation
+b_dev <- mgcv::rmvn(10000, mu = rep(0, length(coef(fit_tp_gam))), V = vcov(fit_tp_gam))
+crit_level <- unname(quantile(apply(abs((Xp %*% t(b_dev)) / se), 2, max), 0.95))
 
-trend_colors <- c(rising = "#2E7D32", falling = "#C62828", flat = "grey55")
+tp_grid <- tp_grid |>
+  mutate(
+    # band built on the log scale, then exponentiated
+    lower_sim = exp(pred$fit - crit_level * se),
+    upper_sim = exp(pred$fit + crit_level * se),
+    # log-scale slope as % change per year in median phosphorus: (exp(slope) - 1) * 100
+    pct = (exp(tp_deriv$.derivative) - 1) * 100,
+    pct_lower = (exp(tp_deriv$.lower_ci) - 1) * 100,
+    pct_upper = (exp(tp_deriv$.upper_ci) - 1) * 100
+  )
 
-ggplot() +
-  geom_point(data = tp_wq, aes(year_frac, result), alpha = 0.35, color = "grey40") +
-  geom_segment(data = tp_seg, aes(x = year_frac, y = fit, xend = year_frac_end, yend = fit_end, color = trend), linewidth = 1.1) +
-  scale_color_manual(values = trend_colors, name = "local trend") +
-  labs(x = "Year", y = "Phosphorus (mg/L)", title = "Total Phosphorus: fitted trajectory by significance of local slope") +
-  nlt_theme +
-  theme(legend.position = "right")
+# same colours as the GAM and GAMM chapters
+trend_cols <- c(rising = "#D55E00", falling = "#0072B2", flat = "grey40")
+
+p_level <- ggplot(tp_grid, aes(year_frac)) +
+  geom_point(data = tp_wq, aes(year_frac, result), alpha = 0.3, color = "grey40") +
+  geom_ribbon(aes(ymin = lower_sim, ymax = upper_sim), fill = "grey70", alpha = 0.5) +
+  geom_line(aes(y = fit, colour = trend, group = 1), linewidth = 1.1, lineend = "round") +
+  scale_colour_manual(values = trend_cols) +
+  labs(x = NULL, y = "Median phosphorus (mg/L)",
+       title = "Fitted trend with 95% simultaneous band",
+       subtitle = "Orange: significantly rising. Blue: significantly falling. Grey: no significant change.") +
+  nlt_theme
+
+p_rate <- ggplot(tp_grid, aes(year_frac)) +
+  geom_ribbon(aes(ymin = pct_lower, ymax = pct_upper), fill = "grey70", alpha = 0.5) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_line(aes(y = pct, colour = trend, group = 1), linewidth = 1.1, lineend = "round") +
+  scale_colour_manual(values = trend_cols) +
+  labs(x = "Year", y = "Change in median phosphorus (% per year)",
+       title = "Rate of change with 95% simultaneous interval") +
+  nlt_theme
+
+p_level / p_rate
 ```
+
+Both bands in @fig-tp-gam-trend are simultaneous, with critical values of `r sprintf("%.2f", crit_level)` for the level and `r sprintf("%.2f", unique(tp_deriv$.crit))` for the slope, against 1.96 for a pointwise interval. The bottom panel is the evidence. The rate interval sits wholly above zero from about year `r sprintf("%.1f", min(rising$year_frac))` to year `r sprintf("%.1f", max(rising$year_frac))`, and that stretch is coloured orange in both panels. The fastest rise in the fitted median is about `r round(max(tp_grid$pct))`% per year, near year `r sprintf("%.1f", tp_grid$year_frac[which.max(tp_grid$pct)])`. Outside that stretch the interval includes zero throughout. The shallow dip after year 9 and the upturn near the end of the record both show up in the fitted rate, but neither moves the interval clear of zero, and no stretch is coloured blue. The rate interval also widens toward both ends of the record, where fewer samples lie on one side of each date, so a slope there would have to be larger to count as significant.
 
 ```{r}
 #| label: tp-gam-report-numbers
 #| include: false
-pct <- function(x) sprintf("%+.1f%%", x)
+# two decimals for values near zero, so a bound just above zero does not print as +0.0%
+pct <- function(x) sprintf(ifelse(abs(x) < 0.1, "%+.2f%%", "%+.1f%%"), x)
 s_tab <- summary(fit_tp_gam)$s.table
 ```
 
@@ -317,9 +364,9 @@ s_tab <- summary(fit_tp_gam)$s.table
 
 - **The record changed.** The smooth term is significant (edf `r round(s_tab[1, "edf"], 1)`, $p$ < 0.001). This is the formal test that the record is not flat, and it does not depend on choosing any period.
 - **It rose from about year `r sprintf("%.1f", min(rising$year_frac))` to year `r sprintf("%.1f", max(rising$year_frac))`, at an average of `r pct(rise_slope[["slope"]])` per year** (95% CI `r pct(rise_slope[["lower"]])` to `r pct(rise_slope[["upper"]])`). This averages the local slope over the stretch where it is significantly positive. Because that stretch was picked from the same fit, its interval excluding zero is built in. The number describes how fast the rise was and how precisely the record pins that down; it is not a separate test that a rise happened.
-- **Since then, no change can be told apart from zero.** The average slope after year `r sprintf("%.1f", max(rising$year_frac))` is `r pct(plateau_slope[["slope"]])` per year (95% CI `r pct(plateau_slope[["lower"]])` to `r pct(plateau_slope[["upper"]])`), and the local slope is flat at every point in that stretch. The fitted curve dips and turns up again near the end, but the GAM cannot separate that movement from noise.
+- **Since then, the evidence for further rise is weak.** After year `r sprintf("%.1f", max(rising$year_frac))`, no single date has a slope whose simultaneous interval clears zero. Averaged over that stretch, the slope is `r pct(plateau_slope[["slope"]])` per year (95% CI `r pct(plateau_slope[["lower"]])` to `r pct(plateau_slope[["upper"]])`), an interval that only just excludes zero. The average mixes three parts of the fitted curve: the end of the rise, which keeps tapering off for about a year; a shallow dip around years 9 to 10; and an upturn over the last year and a half of the record. The positive parts outweigh the dip, but none of the three is large enough at any single date to clear the wider simultaneous interval, and the GAM cannot separate the dip and the upturn from noise.
 
-These are the statements the three fits agreed on, obtained without taking the logistic or piecewise story on board. Two cautions apply. "Flat" means the slope cannot be told apart from zero, not that it is shown to be zero. And the interval at each point is pointwise, so the start and end years of the rise are approximate.
+These are the statements the three fits agreed on, obtained without taking the logistic or piecewise story on board. Three cautions apply. "Flat" means the slope cannot be told apart from zero, not that it is shown to be zero. The start and end years of the rise are approximate: they mark where the simultaneous interval happens to cross zero on the grid, and a slope that changes gradually clears zero gradually. And the average after the rise depends on where that stretch begins. Here it begins where the interval on the slope stops clearing zero, which places the tapering end of the rise inside it. A later start would leave the taper out, but the upturn near the end would still pull the average up, and a start chosen after seeing the result would make the interval on that average harder to interpret.
 
 If a specific event is suspected, such as a permit change or a new upstream discharge on a known date, that changes the situation: there is now a proposed process with a date attached. [Piecewise Regression](piecewise-regression.qmd) can test for a change in slope at that date, and [Changepoint Detection](changepoint-detection.qmd) can check whether the data independently places a break near it.
 
@@ -333,7 +380,7 @@ Total Phosphorus sits in the top-left cell of the table at the start of this cha
 
 ### Why a process model is justified here
 
-The period after removal has a known start, and one kind of process dominates: losses, with no new mass coming in. When those losses each remove roughly a fixed fraction of what is present, concentration falls by a constant fraction each year. That is **first-order decay**, $C(t) = C_0 e^{-kt}$, which is a straight line on the log scale, so the model is the log-transform-then-OLS fit from [Transformations](transformations.qmd). US EPA guidance on monitored natural attenuation uses its rate $k$ to estimate time to a cleanup goal, and treats it as a lumped rate for the site as a whole, not a biodegradation rate (Newell et al., 2002).
+The period after removal has a known start, and one kind of process dominates: losses, with no new mass coming in. When those losses each remove roughly a fixed fraction of what is present, concentration falls by a constant fraction each year. That is **first-order decay**, $C(t) = C_0 e^{-kt}$, which is a straight line on the log scale, so the model is the log-transform-then-OLS fit from [Transformations](transformations.qmd). US EPA guidance on monitored natural attenuation calls the slope of log concentration against time at a single well the point decay rate constant, and uses it to estimate the time needed to reach a remediation goal at that location (Newell et al., 2002). It is a rate for that well, not for the plume as a whole, and it is not a biodegradation rate: it mostly reflects how quickly the source is being depleted, with contributions from sorption, dispersion and biodegradation. The example below assumes the source was removed completely. Newell et al. (2002) describe that as the rare case: most sites with organic contamination keep some residual source even after active remediation, and the rate then tracks how fast that residual source is depleting.
 
 ```{r}
 #| label: plume-data
@@ -365,7 +412,7 @@ The GAM does no better than the line (AIC `r sprintf("%.1f", AIC(fit_plume_gam))
 
 ### Check 2: does the early record predict the later one?
 
-A model used to forecast should be tested on forecasting. Fitting the first five years and predicting the last five does that within the record.
+A model used to forecast should be tested on forecasting. Fitting the first five years and predicting the last five does that within the record. The same EPA guidance asks that monitoring be enough to determine both the attenuation rate and how that rate is changing with time (Newell et al., 2002), which is the question this check puts to the record.
 
 ```{r}
 #| label: plume-split
@@ -399,7 +446,8 @@ c(time_to_goal = time_to_goal, time_to_goal_range)
 ```
 
 ```{r}
-#| label: plume-plot
+#| label: fig-plume
+#| fig-cap: "Synthetic plume record at a single well after source removal, with the first-order decay fit and its 95% confidence band, projected to the 5 µg/L cleanup goal (red dotted line). Solid: within the record. Dashed: projected. Log scale."
 proj_df <- proj |>
   mutate(fit = exp(band[, "fit"]), lwr = exp(band[, "lwr"]), upr = exp(band[, "upr"]),
          observed_range = years_since_removal <= max(plume$years_since_removal))
@@ -418,7 +466,7 @@ ggplot() +
   theme(legend.position = "right")
 ```
 
-At the fitted rate, the well reaches 5 µg/L about `r round(time_to_goal, 1)` years after source removal, with the 95% confidence band crossing the goal between `r round(time_to_goal_range[1], 1)` and `r round(time_to_goal_range[2], 1)` years. Unlike the Total Phosphorus projection, this one is reportable, because the process says the decline continues after the last sample and both checks support it. The range covers uncertainty in the fitted line only, not a change in the process, so the estimate should be updated as monitoring continues.
+At the fitted rate (@fig-plume), the well reaches 5 µg/L about `r round(time_to_goal, 1)` years after source removal, with the 95% confidence band crossing the goal between `r round(time_to_goal_range[1], 1)` and `r round(time_to_goal_range[2], 1)` years. Unlike the Total Phosphorus projection, this one is reportable, because the process says the decline continues after the last sample and both checks support it. The range covers uncertainty in the fitted line only, not a change in the process. The point decay calculation does not account for changes in attenuation processes, some of which can slow the apparent rate as concentrations fall (Newell et al., 2002), and forecast uncertainty grows with the length of the horizon (Kelly et al., 2013). The estimate should be updated as monitoring continues.
 
 ## When a process-based model is justified
 
@@ -436,7 +484,7 @@ When these point to a known process, the process-based model is the stronger cho
 
 A fit is not an explanation. A model is chosen by the question, by what is known about how the data arose, and by how far the answer has to reach, not by shape alone.
 
-For Total Phosphorus, the process is unknown and the question is about the observed record. A logistic curve, a two-breakpoint piecewise model and a GAM fit it about equally well. The first two each tell a story, a ceiling or a pair of event dates, that the record cannot confirm, even though this synthetic record was in fact generated from a logistic curve. Projected past the record, the GAM becomes unstable and the logistic curve stays flat only because its formula requires it. With an unknown process and no need to forecast, the GAM is the more defensible model for this record. Its report is that the record changed (smooth term $p$ < 0.001); that it rose from about year `r sprintf("%.1f", min(rising$year_frac))` to year `r sprintf("%.1f", max(rising$year_frac))` at an average of `r pct(rise_slope[["slope"]])` per year (95% CI `r pct(rise_slope[["lower"]])` to `r pct(rise_slope[["upper"]])`); and that no change since then can be told apart from zero (average slope `r pct(plateau_slope[["slope"]])` per year, 95% CI `r pct(plateau_slope[["lower"]])` to `r pct(plateau_slope[["upper"]])`).
+For Total Phosphorus, the process is unknown and the question is about the observed record. A logistic curve, a two-breakpoint piecewise model and a GAM fit it about equally well. The first two each tell a story, a ceiling or a pair of event dates, that the record cannot confirm, even though this synthetic record was in fact generated from a logistic curve. Projected past the record, the GAM becomes unstable and the logistic curve stays flat only because its formula requires it. With an unknown process and no need to forecast, the GAM is the more defensible model for this record. Its report is that the record changed (smooth term $p$ < 0.001); that it rose from about year `r sprintf("%.1f", min(rising$year_frac))` to year `r sprintf("%.1f", max(rising$year_frac))` at an average of `r pct(rise_slope[["slope"]])` per year (95% CI `r pct(rise_slope[["lower"]])` to `r pct(rise_slope[["upper"]])`); and that after year `r sprintf("%.1f", max(rising$year_frac))` no single date shows a significant slope, although the average over that stretch, `r pct(plateau_slope[["slope"]])` per year (95% CI `r pct(plateau_slope[["lower"]])` to `r pct(plateau_slope[["upper"]])`), only just excludes zero, from the tapering end of the rise and a small upturn near the end of the record that the GAM cannot separate from noise.
 
 For the plume, a known process and a question that reaches past the record justify a first-order model. Its parameter answers the question directly, a cleanup date about `r round(time_to_goal, 1)` years after removal (`r round(time_to_goal_range[1], 1)`–`r round(time_to_goal_range[2], 1)` years from the confidence band), and the record passes both the straight-line check and the split-record check.
 
@@ -452,4 +500,5 @@ The same reasoning applies across this site. Each method chapter matched a model
 - Muggeo, V.M.R. (2008). segmented: An R package to fit regression models with broken-line relationships. *R News*, 8(1), 20–25.
 - Newell, C.J., Rifai, H.S., Wilson, J.T., Connor, J.A., Aziz, J.A., and Suarez, M.P. (2002). *Calculation and Use of First-Order Rate Constants for Monitored Natural Attenuation Studies*. Ground Water Issue, EPA/540/S-02/500. U.S. Environmental Protection Agency.
 - Simpson, G.L. (2018). Modelling palaeoecological time series using generalised additive models. *Frontiers in Ecology and Evolution*, 6, 149.
+- Simpson, G.L. (2024). gratia: An R package for exploring generalized additive models. *Journal of Open Source Software*, 9(104), 6962. <https://doi.org/10.21105/joss.06962>. Version 0.11.2 used.
 - Wood, S.N. (2017). *Generalized Additive Models: An Introduction with R*, Second Edition. CRC Press.
