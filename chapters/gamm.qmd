@@ -557,17 +557,17 @@ edf_naive_k20 <- summary(fit_gam_k20)$s.table["s(year_frac)", "edf"]
 
 A wiggly trend and strongly autocorrelated noise can look alike: both produce runs of values above or below the overall mean. Simpson (2018, §4.5) shows that a model with both may be unable to separate them when sampling is sparse relative to how fast the mean changes. They can be separated when they act on different time scales. In DO, the estimated correlation falls from `r round(phi, 2)` at one month to about `r round(phi^6, 2)` at six months, while the trend changes over years, and 144 monthly samples resolve both scales. The fit converged and AIC strongly favours the AR(1) term, both consistent with the two components being separable here. A record sampled quarterly or less often would warrant more caution.
 
-## Fitted curve against the raw record
+## Fitted curve against the observations
 
 ```{r}
 #| label: fig-do-fitted
-#| fig-cap: "The AR(1)-corrected GAMM's fitted values (trend plus season, back-transformed to medians) against the raw record."
+#| fig-cap: "The AR(1)-corrected GAMM's fitted values (trend plus season, back-transformed to medians) plotted over the monthly samples."
 do_wq <- do_wq |> mutate(fitted = exp(predict(fit_gamm$gam, type = "response")))
 
 ggplot(do_wq, aes(year_frac)) +
   geom_point(aes(y = result), alpha = 0.4) +
   geom_line(aes(y = fitted), color = "steelblue", linewidth = 1) +
-  labs(title = "Dissolved Oxygen, AR(1)-corrected GAMM fit vs. raw record",
+  labs(title = "Dissolved Oxygen, AR(1)-corrected GAMM fitted values",
        y = "DO (mg/L)", x = "Year") +
   nlt_theme
 ```
