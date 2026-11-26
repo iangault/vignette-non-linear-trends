@@ -98,65 +98,67 @@ Model choice changes what gets reported and what action follows. A plateau misre
 
 ## How the pieces fit together
 
-The methods on this site come from several fields (@fig-site-concepts). Regression supplies the framework: linear models, transformations, link functions, and piecewise fits with a breakpoint as a parameter. Nonparametric machine learning supplies local fits such as k-NN and LOESS, which show a shape without fixing its form. Time-series methods supply changepoint search and the tools for autocorrelated noise. The GAM combines regression and smoothing, and borrows its fitting method, REML, from mixed models. A Bayesian reading of the same fit gives its intervals. The GAMM adds a model for correlated residuals. The last chapter brings these together as a question of model choice, and every method is used for inference on the observed record rather than forecasting.
+The methods on this site come from several fields (@fig-site-concepts). Regression supplies the framework: linear models, transformations, link functions, and piecewise fits with a breakpoint as a parameter. Nonparametric machine learning supplies local fits such as k-NN and LOESS, which show a shape without fixing its form. Time-series methods supply changepoint search and the tools for autocorrelated noise. The GAM combines regression and smoothing, and borrows its fitting method, REML, from mixed models. A Bayesian reading of the same fit gives its intervals. The GAMM adds a model for correlated residuals. The last two chapters bring these together as a question of model choice, and every method is used for inference on the observed record rather than forecasting.
 
 ```{mermaid}
 %%| label: fig-site-concepts
-%%| fig-cap: "The fields this site draws on and how they combine. Grey: regression. Yellow: nonparametric machine learning. Teal: time series. Purple: mixed models. Dashed: a Bayesian reading of the GAM fit, used for its intervals rather than as a separate model. Green: how a model is chosen and what the inference covers."
-%%{init: {"flowchart": {"subGraphTitleMargin": {"top": 6, "bottom": 18}}}}%%
+%%| fig-cap: "The ten chapters and the fields they draw on. Numbered boxes are chapters; unnumbered boxes are supporting ideas. Grey: regression. Teal: time series. Yellow: nonparametric machine learning. Purple: mixed models. Dashed: a Bayesian reading of the GAM fit, used for its intervals rather than as a separate model. Green: the two closing chapters on model choice, and what the inference covers."
+%%{init: {"flowchart": {"nodeSpacing": 22, "rankSpacing": 38, "curve": "basis", "wrappingWidth": 320, "subGraphTitleMargin": {"top": 4, "bottom": 10}}}}%%
 flowchart TB
-  subgraph REG["Regression"]
-    R1["OLS and GLMs:<br/>linear in the parameters"]
-    R2["Transformations and<br/>link functions"]
-    R3["Piecewise regression:<br/>a breakpoint as a parameter"]
+  subgraph NP["Nonparametric ML"]
+    C5["<b>5</b> k-NN regression<br/>local average, no fixed form"]
+    C6["<b>6</b> LOESS<br/>local regression, bias vs. variance"]
+    C5 --> C6
   end
-  subgraph NP["Nonparametric machine learning"]
-    N1["k-NN and LOESS:<br/>local fits, no fixed form"]
-    N2["Smoothing parameter:<br/>bias vs. variance"]
+  subgraph REG["Regression"]
+    C1["<b>1</b> Regression framework<br/>OLS and GLMs"]
+    C2["<b>2</b> Transformations<br/>log response, link functions"]
+    C3["<b>3</b> Piecewise regression<br/>a breakpoint as a parameter"]
+    C1 --> C2 --> C3
   end
   subgraph TS["Time series"]
-    T1["Changepoint detection:<br/>a level shift found by search"]
-    T2["Autocorrelation:<br/>ACF, PACF, AR(1)"]
+    C4["<b>4</b> Changepoint detection<br/>a level shift found by search"]
   end
-  subgraph MIX["Mixed models"]
-    M1["Random effects<br/>and REML"]
+  BAY["Bayesian reading<br/>penalty as a prior"]
+  MIX["mixed models<br/>random effects, REML"]
+  AC["autocorrelation<br/>ACF, PACF, AR(1)"]
+  C7(["<b>7</b> GAM<br/>penalized smooth terms"])
+  C8(["<b>8</b> GAMM<br/>GAM with correlated residuals"])
+  subgraph CH["Choosing a model"]
+    C9["<b>9</b> Linear vs. nonlinear<br/>is the added flexibility needed?"]
+    C10["<b>10</b> Mechanism vs. shape<br/>the question, the process,<br/>how far the answer reaches"]
   end
-  subgraph BAY["Bayesian reading"]
-    B1["Penalty as a prior;<br/>posterior intervals"]
-  end
-  GAM(["<b>GAM</b><br/>penalized smooth terms"])
-  GAMM(["<b>GAMM</b><br/>GAM with correlated residuals"])
-  CHOOSE["<b>Choosing a model</b><br/>the question, the process,<br/>how far the answer reaches"]
   GOAL["Inference on the observed record,<br/>not forecasting"]
-  REG --> GAM
-  NP --> GAM
-  MIX --> GAM
-  BAY -.-> GAM
-  GAM --> GAMM
-  MIX --> GAMM
-  TS --> GAMM
-  REG --> CHOOSE
-  GAMM --> CHOOSE
-  CHOOSE --> GOAL
+  C3 --> C7
+  C6 --> C7
+  BAY --> C7
+  MIX --> C7
+  C7 --> C8
+  AC ---> C8
+  C3 --> TS
+  C4 --> CH
+  C8 --> CH
+  CH --> GOAL
   classDef reg fill:#EEF0F2,stroke:#57717C,stroke-width:1.5px,color:#1a1a1a
   classDef np fill:#FBF1D9,stroke:#C9A23F,stroke-width:1.5px,color:#1a1a1a
-  classDef mix fill:#ECE6F3,stroke:#8A6FB0,stroke-width:1.5px,color:#1a1a1a
+  classDef mix fill:#ECE6F3,stroke:#8A6FB0,stroke-width:1px,color:#3a3a3a
   classDef ts fill:#DDECEF,stroke:#5F97A4,stroke-width:1.5px,color:#1a1a1a
-  classDef bay fill:#FFFFFF,stroke:#9AA5AB,stroke-width:1.5px,stroke-dasharray:4 3,color:#3a3a3a
+  classDef tsc fill:#DDECEF,stroke:#5F97A4,stroke-width:1px,color:#3a3a3a
+  classDef bay fill:#FFFFFF,stroke:#9AA5AB,stroke-width:1px,stroke-dasharray:4 3,color:#3a3a3a
   classDef inf fill:#E3F0E1,stroke:#5E9A5A,stroke-width:1.5px,color:#1a1a1a
   classDef model fill:#FFFFFF,stroke:#1a1a1a,stroke-width:2.5px,color:#1a1a1a
-  class R1,R2,R3 reg
-  class N1,N2 np
-  class T1,T2 ts
-  class M1 mix
-  class B1 bay
-  class GAM,GAMM model
-  class CHOOSE,GOAL inf
+  class C1,C2,C3 reg
+  class C5,C6 np
+  class C4 ts
+  class AC tsc
+  class MIX mix
+  class BAY bay
+  class C7,C8 model
+  class C9,C10,GOAL inf
   style REG fill:#F7F8F9,stroke:#57717C
   style NP fill:#FDF8EC,stroke:#C9A23F
   style TS fill:#EEF6F7,stroke:#5F97A4
-  style MIX fill:#F6F2FA,stroke:#8A6FB0
-  style BAY fill:#FAFAFA,stroke:#9AA5AB,stroke-dasharray:4 3
+  style CH fill:#F4F9F3,stroke:#5E9A5A
 ```
 
 ## Start from the goal, not the method
