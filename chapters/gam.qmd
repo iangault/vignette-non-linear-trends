@@ -482,7 +482,7 @@ The grid points are about two weeks apart, so the counts above are shares of the
 
 ```{r}
 #| label: fig-cu-derivative
-#| fig-cap: "Top: the fitted median with its 95% simultaneous band, coloured where the trend is significantly rising (orange) or falling (blue). Bottom: the rate of change, in percent per year, with its 95% simultaneous interval."
+#| fig-cap: "Top: the fitted median, coloured where the trend is significantly rising (orange) or falling (blue). Bottom: the rate of change, in percent per year. Both bands are 95% simultaneous."
 #| fig-height: 7
 trend_cols <- c(rising = "#D55E00", falling = "#0072B2", flat = "grey40")
 
@@ -494,7 +494,7 @@ p_level <- ggplot(grid, aes(year_frac)) +
   geom_line(aes(y = fit, colour = trend, group = 1), linewidth = 1.1, lineend = "round") +
   scale_colour_manual(values = trend_cols) +
   labs(x = NULL, y = "Median copper (µg/L)",
-       title = "Fitted trend with 95% simultaneous band",
+       title = "Temporal trend in median Total Copper (GAM fit)",
        subtitle = "Orange: significantly rising. Blue: significantly falling. Grey: no significant change.") +
   nlt_theme
 
@@ -509,7 +509,7 @@ p_rate <- ggplot(grid, aes(year_frac)) +
   scale_colour_manual(values = trend_cols) +
   scale_y_continuous(breaks = log1p(pct_breaks / 100), labels = paste0(pct_breaks, "%")) +
   labs(x = "Year", y = "Change in median copper (% per year)",
-       title = "Rate of change with 95% simultaneous interval") +
+       title = "Rate of change: significant where the 95% band clears zero") +
   nlt_theme
 
 p_level / p_rate
